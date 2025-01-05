@@ -19,7 +19,6 @@ public class BodegaDAO {
                 }
             }
         }
-        System.out.println("Subbodegas encontradas: " + subbodegas); // Depuración
         return subbodegas;
     }
 
@@ -264,7 +263,6 @@ public class BodegaDAO {
             }
         }
 
-        System.out.println("Subbodegas obtenidas del DAO: " + subbodegasMap); // Depuración
         return subbodegasMap;
     }
 

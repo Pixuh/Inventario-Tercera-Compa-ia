@@ -24,7 +24,7 @@ public class LoginFrame extends JFrame {
         JPanel logoPanel = new JPanel(new GridBagLayout());
         logoPanel.setBackground(new Color(240, 240, 240));
         JLabel logoLabel = new JLabel();
-        ImageIcon logo = new ImageIcon("img/logotercera400x400.png");
+        ImageIcon logo = new ImageIcon(getClass().getResource("/img/logotercera400x400.png"));
         Image scaledLogo = logo.getImage().getScaledInstance(200, 200, Image.SCALE_SMOOTH);
         logoLabel.setIcon(new ImageIcon(scaledLogo));
         logoPanel.add(logoLabel, new GridBagConstraints());

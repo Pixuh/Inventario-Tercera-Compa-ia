@@ -213,10 +213,6 @@ public class MainFrame extends JFrame implements BodegaObserver{
     // Método para cargar datos de la tabla con filtros
     private void cargarDatosTablaConFiltros(String textoBusqueda, String bodegaSeleccionada, String subbodegaSeleccionada) {
         try {
-            System.out.println("Cargando datos de inventario...");
-            System.out.println("Texto de búsqueda: " + textoBusqueda);
-            System.out.println("Bodega seleccionada: " + bodegaSeleccionada);
-            System.out.println("Subbodega seleccionada: " + subbodegaSeleccionada);
 
             List<ProductoForm> productos;
 
@@ -228,17 +224,7 @@ public class MainFrame extends JFrame implements BodegaObserver{
                 Integer idBodega = bodegaPrincipalMap.getOrDefault(bodegaSeleccionada, null);
                 Integer idSubbodega = subbodegaMap.getOrDefault(subbodegaSeleccionada, null);
 
-                System.out.println("ID de Bodega seleccionada: " + idBodega);
-                System.out.println("ID de Subbodega seleccionada: " + idSubbodega);
-                System.out.println("Aplicando filtros de búsqueda...");
-
                 productos = productoDAO.buscarProductosPorFiltros(textoBusqueda, idBodega, idSubbodega);
-            }
-
-            // Verificar si los productos fueron recuperados
-            System.out.println("Productos recuperados: " + productos.size());
-            for (ProductoForm producto : productos) {
-                System.out.println("Producto: " + producto.getNombre() + ", Cantidad: " + producto.getCantidad());
             }
 
             // Configurar el modelo de la tabla
@@ -462,11 +448,9 @@ public class MainFrame extends JFrame implements BodegaObserver{
         // Listener para actualizar las subbodegas al seleccionar una bodega principal
         bodegaPrincipalComboBoxAgregar.addActionListener(e -> {
             String bodegaSeleccionada = (String) bodegaPrincipalComboBoxAgregar.getSelectedItem();
-            System.out.println("Bodega seleccionada: " + bodegaSeleccionada); // Depuración
 
             if (bodegaSeleccionada != null && bodegaPrincipalMap.containsKey(bodegaSeleccionada)) {
                 int idBodegaPrincipal = bodegaPrincipalMap.get(bodegaSeleccionada);
-                System.out.println("ID de Bodega Principal seleccionada: " + idBodegaPrincipal); // Depuración
                 cargarSubbodegasEnComboBox(subbodegaComboBoxAgregar, idBodegaPrincipal);
                 subbodegaComboBoxAgregar.setEnabled(true); // Habilitar si hay subbodegas disponibles
             } else {
@@ -493,9 +477,6 @@ public class MainFrame extends JFrame implements BodegaObserver{
                 Integer idBodegaPrincipal = obtenerIdDesdeComboBox(bodegaPrincipalComboBoxAgregar, bodegaPrincipalMap);
                 Integer idSubbodega = obtenerIdDesdeComboBox(subbodegaComboBoxAgregar, subbodegaMap);
 
-                // Depuración de IDs obtenidos
-                System.out.println("ID Bodega Principal: " + idBodegaPrincipal);
-                System.out.println("ID Subbodega: " + idSubbodega);
 
                 if (idBodegaPrincipal == null || idSubbodega == null) {
                     throw new IllegalArgumentException("Debe seleccionar una Bodega Principal y una Subbodega.");
@@ -892,8 +873,6 @@ public class MainFrame extends JFrame implements BodegaObserver{
                 comboBox.setEnabled(true);
             }
 
-            System.out.println("Subbodegas cargadas: " + subbodegas); // Depuración
-
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, "Error al cargar subbodegas: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
@@ -902,13 +881,10 @@ public class MainFrame extends JFrame implements BodegaObserver{
     private Integer obtenerIdDesdeComboBox(JComboBox<String> comboBox, Map<String, Integer> mapa) {
         try {
             String seleccionado = (String) comboBox.getSelectedItem();
-            System.out.println("Seleccionado del ComboBox: " + seleccionado); // Depuración
-            System.out.println("Mapa: " + mapa); // Depuración
 
             if (seleccionado != null && mapa.containsKey(seleccionado)) {
                 return mapa.get(seleccionado);
             } else {
-                System.out.println("El mapa no contiene el seleccionado o es nulo."); // Depuración
                 return null;
             }
         } catch (Exception e) {

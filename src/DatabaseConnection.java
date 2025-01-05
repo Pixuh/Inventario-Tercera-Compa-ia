@@ -5,9 +5,9 @@ import java.sql.SQLException;
 public class DatabaseConnection {
 
     // Información de conexión a la base de datos
-    private static final String URL = "jdbc:postgresql://localhost:5432/postgres"; // Cambia la URL según tu configuración
-    private static final String USER = "postgres"; // Cambia esto por tu usuario de la base de datos
-    private static final String PASSWORD = "admin123"; // Cambia esto por tu contraseña de la base de datos
+    private static final String URL = "jdbc:postgresql://3.86.100.202:5432/inventario_bomberos";
+    private static final String USER = "postgres";
+    private static final String PASSWORD = "admin123";
 
     // Método para obtener la conexión a la base de datos
     public static Connection getConnection() throws SQLException {

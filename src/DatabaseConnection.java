@@ -1,35 +1,36 @@
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 
 public class DatabaseConnection {
 
-    // Información de conexión a la base de datos
-    private static final String URL = "jdbc:postgresql://3.86.100.202:5432/inventario_bomberos";
-    private static final String USER = "postgres";
-    private static final String PASSWORD = "admin123";
+    private static HikariDataSource dataSource;
 
-    // Método para obtener la conexión a la base de datos
-    public static Connection getConnection() throws SQLException {
-        try {
-            // Registrar el driver de PostgreSQL
-            Class.forName("org.postgresql.Driver");
-        } catch (ClassNotFoundException e) {
-            throw new SQLException("El driver de PostgreSQL no está disponible en el classpath.", e);
-        }
+    static {
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl("jdbc:postgresql://3.86.100.202:5432/inventario_bomberos");
+        config.setUsername("postgres");
+        config.setPassword("admin123");
+        // Configuraciones adicionales:
+        config.setDriverClassName("org.postgresql.Driver");
+        config.setMaximumPoolSize(10);       // Número máximo de conexiones en el pool
+        config.setMinimumIdle(2);            // Conexiones mínimas inactivas
+        config.setConnectionTimeout(30000);  // Tiempo máximo de espera (ms)
+        config.setIdleTimeout(600000);       // Tiempo máximo que una conexión puede estar inactiva (ms)
+        config.setMaxLifetime(1800000);      // Vida máxima de una conexión (ms)
 
-        // Retornar la conexión
-        return DriverManager.getConnection(URL, USER, PASSWORD);
+        dataSource = new HikariDataSource(config);
     }
 
-    // Método para cerrar una conexión (opcional para facilitar el manejo de recursos)
-    public static void closeConnection(Connection conn) {
-        if (conn != null) {
-            try {
-                conn.close();
-            } catch (SQLException e) {
-                System.err.println("Error al cerrar la conexión: " + e.getMessage());
-            }
+    public static Connection getConnection() throws SQLException {
+        return dataSource.getConnection();
+    }
+
+    // Método para cerrar el dataSource al finalizar la aplicación (opcional)
+    public static void closeDataSource() {
+        if (dataSource != null && !dataSource.isClosed()) {
+            dataSource.close();
         }
     }
 }

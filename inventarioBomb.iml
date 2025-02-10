@@ -10,5 +10,14 @@
     <orderEntry type="library" exported="" name="flatlaf-3.5.2" level="project" />
     <orderEntry type="library" exported="" name="postgresql-42.7.4" level="project" />
     <orderEntry type="library" exported="" name="jcalendar_1.0.0" level="project" />
+    <orderEntry type="module-library" exported="">
+      <library>
+        <CLASSES>
+          <root url="jar://$MODULE_DIR$/lib/HikariCP-6.2.1.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+      </library>
+    </orderEntry>
   </component>
 </module>

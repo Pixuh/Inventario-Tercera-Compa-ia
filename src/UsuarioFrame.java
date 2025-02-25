@@ -9,12 +9,15 @@ import java.util.List;
 public class UsuarioFrame extends JFrame {
 
     private final ProductoDAO productoDAO = new ProductoDAO();
+    private JComboBox<String> subbodegaComboBox;
 
     public UsuarioFrame() {
         setTitle("Inventario de Bomberos - Usuario");
         setSize(800, 600);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
+
+        subbodegaComboBox = new JComboBox<>(); // ✅ Inicialización correcta aquí
 
         JPanel verInventarioPanel = new JPanel(new BorderLayout());
         JTable inventarioTable = new JTable();
@@ -30,13 +33,20 @@ public class UsuarioFrame extends JFrame {
         filtroPanel.add(buscarField);
         filtroPanel.add(new JLabel("Bodega:"));
         filtroPanel.add(bodegaComboBox);
+        filtroPanel.add(new JLabel("Subbodega:"));
+        filtroPanel.add(subbodegaComboBox);  // ✅ Ahora usará la instancia correcta
+
         filtroPanel.add(buscarButton);
         filtroPanel.add(refreshButton);
 
         verInventarioPanel.add(filtroPanel, BorderLayout.NORTH);
 
         // Listener para refrescar el inventario
-        refreshButton.addActionListener(e -> cargarInventario(inventarioTable, "", null));
+        refreshButton.addActionListener(e -> {
+            String bodegaSeleccionada = (String) bodegaComboBox.getSelectedItem();
+            String subbodegaSeleccionada = (String) subbodegaComboBox.getSelectedItem();
+            cargarInventario(inventarioTable, "", bodegaSeleccionada, subbodegaSeleccionada);
+        });
 
         // Listener para buscar productos
         buscarButton.addActionListener(e -> {
@@ -48,11 +58,29 @@ public class UsuarioFrame extends JFrame {
                 return;
             }
 
-            cargarInventario(inventarioTable, textoBusqueda, bodegaSeleccionada);
+            cargarInventario(inventarioTable, "", null, null);
+
+
         });
 
+        // Listener para actualizar subbodegas y cargar productos automáticamente al seleccionar una bodega
+        bodegaComboBox.addActionListener(e -> {
+            String bodegaSeleccionada = (String) bodegaComboBox.getSelectedItem();
+            actualizarSubbodegas(bodegaSeleccionada);
+            cargarInventario(inventarioTable, "", bodegaSeleccionada, null);  // Cargar todos los productos de la bodega
+        });
+
+        // Listener para actualizar el inventario cuando se seleccione una subbodega
+        subbodegaComboBox.addActionListener(e -> {
+            String bodegaSeleccionada = (String) bodegaComboBox.getSelectedItem();
+            String subbodegaSeleccionada = (String) subbodegaComboBox.getSelectedItem();
+            cargarInventario(inventarioTable, "", bodegaSeleccionada, subbodegaSeleccionada);
+        });
+
+
         // Cargar datos iniciales
-        cargarInventario(inventarioTable, "", null);
+        cargarInventario(inventarioTable, "", null, null);
+
         cargarBodegasEnComboBox(bodegaComboBox);
 
         // Configurar JFrame
@@ -60,15 +88,27 @@ public class UsuarioFrame extends JFrame {
     }
 
     // Método para cargar el inventario
-    private void cargarInventario(JTable inventarioTable, String textoBusqueda, String bodegaSeleccionada) {
+    private void cargarInventario(JTable inventarioTable, String textoBusqueda, String bodegaSeleccionada, String subbodegaSeleccionada) {
         try {
             Integer bodegaId = null;
+            Integer subbodegaId = null;
+
+            BodegaDAO bodegaDAO = new BodegaDAO();
+
+            // Obtener ID de la bodega seleccionada
             if (bodegaSeleccionada != null && !bodegaSeleccionada.equals("Todas las bodegas")) {
-                BodegaDAO bodegaDAO = new BodegaDAO();
                 bodegaId = bodegaDAO.obtenerIdBodegaPrincipalPorNombre(bodegaSeleccionada);
             }
 
-            List<ProductoForm> productos = productoDAO.buscarProductosPorBodega(textoBusqueda, bodegaId);
+            // Obtener ID de la subbodega seleccionada si hay
+            if (subbodegaSeleccionada != null && !subbodegaSeleccionada.equals("Todas las subbodegas")) {
+                subbodegaId = bodegaDAO.obtenerIdSubbodegaPorNombre(subbodegaSeleccionada);
+            }
+
+            // Buscar productos por filtros
+            List<ProductoForm> productos = productoDAO.buscarProductosPorFiltros(textoBusqueda, bodegaId, subbodegaId);
+
+            // Configuración de la tabla
             String[] columnNames = {"ID", "Nombre", "Cantidad", "Fecha de Ingreso", "Ubicación", "Bodega Principal", "Subbodega"};
             Object[][] data = new Object[productos.size()][7];
 
@@ -89,6 +129,25 @@ public class UsuarioFrame extends JFrame {
         }
     }
 
+    private void actualizarSubbodegas(String nombreBodegaSeleccionada) {
+        try {
+            BodegaDAO bodegaDAO = new BodegaDAO();
+            subbodegaComboBox.removeAllItems();
+            subbodegaComboBox.addItem("Todas las subbodegas");
+
+            if (nombreBodegaSeleccionada != null && !nombreBodegaSeleccionada.equals("Todas las bodegas")) {
+                int idBodegaPrincipal = bodegaDAO.obtenerIdBodegaPrincipalPorNombre(nombreBodegaSeleccionada);
+                List<String> nombresSubbodegas = bodegaDAO.obtenerSubbodegasPorBodegaPrincipal(idBodegaPrincipal);
+
+                for (String nombreSubbodega : nombresSubbodegas) {
+                    subbodegaComboBox.addItem(nombreSubbodega);
+                }
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error al cargar subbodegas: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     // Método para cargar las bodegas en el JComboBox
     private void cargarBodegasEnComboBox(JComboBox<String> bodegaComboBox) {
         try {
@@ -104,6 +163,8 @@ public class UsuarioFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "Error al cargar bodegas: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
+
+
 
     public static void main(String[] args) {
         try {

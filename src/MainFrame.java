@@ -1,6 +1,7 @@
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -22,7 +23,6 @@ public class MainFrame extends JFrame implements BodegaObserver {
     private JComboBox<String> subbodegaComboBoxEliminar;
     private JComboBox<String> bodegaDestinoComboBox;
     private JComboBox<String> subbodegaDestinoComboBox;
-
 
     public MainFrame() {
         setTitle("Inventario Tercera Compañía San Pedro de la Paz");
@@ -296,8 +296,18 @@ public class MainFrame extends JFrame implements BodegaObserver {
         cargarBodegasPrincipalesEnComboBox(bodegaPrincipalComboBox);
         subbodegaComboBox.addItem("Todas las subbodegas");
 
-        bodegaPrincipalComboBox.addActionListener(e -> actualizarSubbodegas());
-        subbodegaComboBox.addActionListener(e -> aplicarFiltros());
+        // Listener de selección de bodega
+        bodegaPrincipalComboBox.addActionListener((ActionEvent e) -> {
+            String bodegaSeleccionada = (String) bodegaPrincipalComboBox.getSelectedItem();
+            actualizarSubbodegas(bodegaSeleccionada);
+        });
+
+        // 🔥 Listener de selección de subbodega
+        subbodegaComboBox.addActionListener((ActionEvent e) -> {
+            aplicarFiltros(); // Aplica los filtros cuando cambia la subbodega
+        });
+
+        // 🔍 Filtro en campo de búsqueda
         buscarField.addActionListener(e -> aplicarFiltros());
 
         panel.add(new JLabel("Buscar:"));
@@ -307,6 +317,7 @@ public class MainFrame extends JFrame implements BodegaObserver {
         panel.add(new JLabel("Subbodega:"));
         panel.add(subbodegaComboBox);
 
+        // 🔄 Botón de refresco
         JButton refrescarButton = new JButton("Refrescar");
         refrescarButton.addActionListener(e -> cargarDatosTabla());
         panel.add(refrescarButton);
@@ -315,22 +326,33 @@ public class MainFrame extends JFrame implements BodegaObserver {
     }
 
     private void aplicarFiltros() {
-        String textoBusqueda = buscarField.getText();
-        String bodegaSeleccionada = (String) bodegaPrincipalComboBox.getSelectedItem();
-        String subbodegaSeleccionada = (String) subbodegaComboBox.getSelectedItem();
+        String textoBusqueda = buscarField.getText();  // Obtiene el texto del campo de búsqueda
+        String bodegaSeleccionada = (String) bodegaPrincipalComboBox.getSelectedItem();  // Obtiene la bodega seleccionada
+        String subbodegaSeleccionada = (String) subbodegaComboBox.getSelectedItem();  // Obtiene la subbodega seleccionada
+
+        // Llama a la función que carga los datos de la tabla con los filtros aplicados
         cargarDatosTablaConFiltros(textoBusqueda, bodegaSeleccionada, subbodegaSeleccionada);
     }
 
-    private void actualizarSubbodegas() {
-        subbodegaComboBox.removeAllItems();
-        String bodegaSeleccionada = (String) bodegaPrincipalComboBox.getSelectedItem();
-        if (!"Todas las bodegas".equals(bodegaSeleccionada)) {
-            int idBodegaPrincipal = bodegaPrincipalMap.getOrDefault(bodegaSeleccionada, -1);
-            cargarSubbodegasEnComboBox(subbodegaComboBox, idBodegaPrincipal);
-        } else {
+
+    private void actualizarSubbodegas(String nombreBodegaSeleccionada) {
+        try {
+            BodegaDAO bodegaDAO = new BodegaDAO();
+            subbodegaComboBox.removeAllItems();
             subbodegaComboBox.addItem("Todas las subbodegas");
+
+            if (nombreBodegaSeleccionada != null && !nombreBodegaSeleccionada.equals("Todas las bodegas")) {
+                int idBodegaPrincipal = bodegaDAO.obtenerIdBodegaPrincipalPorNombre(nombreBodegaSeleccionada);
+                List<String> nombresSubbodegas = bodegaDAO.obtenerSubbodegasPorBodegaPrincipal(idBodegaPrincipal);
+
+                for (String nombreSubbodega : nombresSubbodegas) {
+                    subbodegaMap.put(nombreSubbodega, bodegaDAO.obtenerIdSubbodegaPorNombre(nombreSubbodega));
+                    subbodegaComboBox.addItem(nombreSubbodega);
+                }
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error al cargar subbodegas: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
-        aplicarFiltros();
     }
 
     private void cargarDatosTabla() {
@@ -373,18 +395,25 @@ public class MainFrame extends JFrame implements BodegaObserver {
 
     private void cargarDatosTablaConFiltros(String textoBusqueda, String bodegaSeleccionada, String subbodegaSeleccionada) {
         try {
+            Integer idBodega = bodegaPrincipalMap.getOrDefault(bodegaSeleccionada, null);
+            Integer idSubbodega = subbodegaMap.getOrDefault(subbodegaSeleccionada, null);
+
             List<ProductoForm> productos = productoDAO.buscarProductosPorFiltros(
-                    textoBusqueda, bodegaPrincipalMap.getOrDefault(bodegaSeleccionada, null),
-                    subbodegaMap.getOrDefault(subbodegaSeleccionada, null));
+                    textoBusqueda, idBodega, idSubbodega
+            );
 
             DefaultTableModel model = (DefaultTableModel) inventarioTable.getModel();
             model.setRowCount(0);
 
             for (ProductoForm producto : productos) {
                 model.addRow(new Object[]{
-                        producto.getId(), producto.getNombre(), producto.getCantidad(),
+                        producto.getId(),
+                        producto.getNombre(),
+                        producto.getCantidad(),
                         new SimpleDateFormat("yyyy-MM-dd").format(producto.getFechaIngreso()),
-                        producto.getUbicacion(), producto.getNombreBodegaPrincipal(), producto.getNombreSubbodega()
+                        producto.getUbicacion(),
+                        producto.getNombreBodegaPrincipal(),
+                        producto.getNombreSubbodega()
                 });
             }
         } catch (Exception ex) {

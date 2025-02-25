@@ -1,6 +1,7 @@
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.List;
@@ -15,12 +16,10 @@ public class UsuarioFrame extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        // Crear panel principal
         JPanel verInventarioPanel = new JPanel(new BorderLayout());
         JTable inventarioTable = new JTable();
         verInventarioPanel.add(new JScrollPane(inventarioTable), BorderLayout.CENTER);
 
-        // Panel para filtros
         JPanel filtroPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JTextField buscarField = new JTextField(20);
         JComboBox<String> bodegaComboBox = new JComboBox<>();
@@ -63,7 +62,7 @@ public class UsuarioFrame extends JFrame {
     // Método para cargar el inventario
     private void cargarInventario(JTable inventarioTable, String textoBusqueda, String bodegaSeleccionada) {
         try {
-            Integer bodegaId = null; // ID de la bodega seleccionada
+            Integer bodegaId = null;
             if (bodegaSeleccionada != null && !bodegaSeleccionada.equals("Todas las bodegas")) {
                 BodegaDAO bodegaDAO = new BodegaDAO();
                 bodegaId = bodegaDAO.obtenerIdBodegaPrincipalPorNombre(bodegaSeleccionada);
@@ -90,14 +89,14 @@ public class UsuarioFrame extends JFrame {
         }
     }
 
-
     // Método para cargar las bodegas en el JComboBox
     private void cargarBodegasEnComboBox(JComboBox<String> bodegaComboBox) {
         try {
-            BodegaDAO bodegaDAO = new BodegaDAO();
+            BodegaDAO bodegaDAO = new BodegaDAO();  // Crear el objeto fuera del try
             List<String> nombresBodegas = bodegaDAO.obtenerNombresBodegasPrincipales();
             bodegaComboBox.removeAllItems();
-            bodegaComboBox.addItem("Todas las bodegas"); // Opción más descriptiva
+            bodegaComboBox.addItem("Todas las bodegas"); // Opción predeterminada
+
             for (String nombreBodega : nombresBodegas) {
                 bodegaComboBox.addItem(nombreBodega);
             }
@@ -105,7 +104,6 @@ public class UsuarioFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "Error al cargar bodegas: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
-
 
     public static void main(String[] args) {
         try {
@@ -119,5 +117,4 @@ public class UsuarioFrame extends JFrame {
             frame.setVisible(true);
         });
     }
-
 }

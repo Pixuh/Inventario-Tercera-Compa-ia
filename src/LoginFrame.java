@@ -94,34 +94,57 @@ public class LoginFrame extends JFrame {
 
     private void authenticate(String nombreUsuario, String password, JButton loginButton) {
         if (nombreUsuario.isEmpty() || password.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Por favor complete todos los campos.", "Advertencia", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Por favor complete todos los campos.",
+                    "Advertencia", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         loginButton.setEnabled(false); // Deshabilitar el botón mientras se procesa
         SwingUtilities.invokeLater(() -> {
-            try (Connection conn = DatabaseConnection.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(
-                         "SELECT rol FROM usuario WHERE nombre = ? AND contrasena = ?")) {
+            Connection conn = null;
+            PreparedStatement stmt = null;
+            ResultSet rs = null;
 
+            try {
+                conn = DatabaseConnection.getConnection();
+                stmt = conn.prepareStatement(
+                        "SELECT rol FROM usuario WHERE nombre = ? AND contrasena = ?"
+                );
                 stmt.setString(1, nombreUsuario);
                 stmt.setString(2, password);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        String rol = rs.getString("rol");
-                        dispose(); // Cerrar ventana de inicio de sesión
-                        abrirVentanaPorRol(rol);
-                    } else {
-                        JOptionPane.showMessageDialog(this, "Nombre de usuario o contraseña incorrectos.", "Error", JOptionPane.ERROR_MESSAGE);
-                        limpiarCampos();
+
+                rs = stmt.executeQuery();
+                if (rs.next()) {
+                    String rol = rs.getString("rol");
+                    dispose(); // Cerrar ventana de inicio de sesión
+                    abrirVentanaPorRol(rol);
+                } else {
+                    JOptionPane.showMessageDialog(null, "Usuario o contraseña incorrectos.");
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+                JOptionPane.showMessageDialog(null, "Error en la conexión a la base de datos.");
+            } finally {
+                // Cierre seguro de recursos
+                if (rs != null) {
+                    try {
+                        rs.close();
+                    } catch (SQLException e) {
+                        e.printStackTrace();
                     }
                 }
-            } catch (SQLException ex) {
-                JOptionPane.showMessageDialog(this, "Error al autenticar: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-            } finally {
-                loginButton.setEnabled(true); // Rehabilitar el botón
+                if (stmt != null) {
+                    try {
+                        stmt.close();
+                    } catch (SQLException e) {
+                        e.printStackTrace();
+                    }
+                }
+                DatabaseConnection.closeConnection(conn);
+                loginButton.setEnabled(true);
             }
         });
+
     }
 
     private void abrirVentanaPorRol(String rol) {

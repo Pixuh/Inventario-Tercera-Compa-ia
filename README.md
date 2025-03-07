@@ -1,46 +1,41 @@
-# Inventario - Tercera Compañía
+# 📦 Inventario - Tercera Compañía de Bomberos
 
-Este proyecto es una aplicación de gestión de inventario para la Tercera Compañía de Bomberos. Permite la administración de productos, usuarios y bodegas, con una interfaz gráfica amigable desarrollada en Java.
-
-## 📦 Descarga
-
-Descarga el archivo JAR ejecutable para utilizar la aplicación:
-
-- [**Descargar inventarioBomb.jar**](https://github.com/Pixuh/Inventario-Tercera-Compa-ia/raw/main/release/inventarioBomb.jar)
-
-## 🚀 Requisitos
-
-Para ejecutar el archivo JAR, asegúrate de tener instalado:
-- [Java JDK](https://www.oracle.com/java/technologies/javase-jdk11-downloads.html) (versión 11 o superior).
-
-## 🛠️ Ejecución
-
-1. Descarga el archivo JAR desde el enlace anterior.
-2. Ejecuta el archivo:
-   - **Windows:** Haz doble clic en el archivo `inventarioBomb.jar`.
-   - **Terminal/Consola:**
-     ```bash
-     java -jar inventarioBomb.jar
-     ```
-
-## 📚 Funcionalidades
-
-- Gestión de inventarios.
-- Administración de bodegas principales y subbodegas.
-- Manejo de usuarios con roles de **admin** y **usuario**.
-
-## 🌟 Capturas de Pantalla
-
-![LoginFrame](img/logotercera400x400.png)
-
-## 📝 Licencia
-
-Este proyecto es de uso interno y está protegido bajo los derechos de la Tercera Compañía.
+Este proyecto es una aplicación de gestión de inventario diseñada para la **Tercera Compañía de Bomberos**.  
+Permite la administración de productos, usuarios y bodegas, proporcionando una **interfaz gráfica amigable** desarrollada en **Java**.
 
 ---
 
-### **Pasos para añadirlo al repositorio:**
+## 🚀 Última Versión
+La versión más reciente del software está disponible para su descarga:
 
-1. **Crea un archivo README.md** en la raíz del proyecto:
+🔹 **Versión estable:** `v1.01`  
+📥 [**Descargar InventarioBomberos_v1.01.jar**](https://github.com/Pixuh/Inventario-Tercera-Compa-ia/raw/main/release/InventarioBomberos_v1.01.jar)
+
+---
+
+## 🔄 Historial de versiones
+| Versión | Descripción | Enlace de descarga |
+|---------|------------|--------------------|
+| `v1.01` | Optimización y mejoras en rendimiento | 📥 [Descargar](https://github.com/Pixuh/Inventario-Tercera-Compa-ia/raw/main/release/InventarioBomberos_v1.01.jar) |
+| `v1.00` | Primera versión funcional | 📥 [Descargar](https://github.com/Pixuh/Inventario-Tercera-Compa-ia/raw/main/release/inventarioBomb.jar) |
+
+---
+
+## ⚙️ Requisitos
+Para ejecutar el archivo JAR, asegúrate de tener instalado:
+
+✔ **[Java JDK 11+](https://www.oracle.com/java/technologies/javase-jdk11-downloads.html)**  
+
+---
+
+## 🛠️ Instrucciones de Ejecución
+
+### **Windows**
+1. Descarga el archivo JAR desde el enlace de la última versión.
+2. **Doble clic** en el archivo `InventarioBomberos_v1.01.jar` para ejecutarlo.
+
+### **Terminal / Consola**
+1. Abre una terminal y navega hasta la carpeta donde descargaste el JAR.
+2. Ejecuta el siguiente comando:
    ```bash
-   touch README.md
+   java -jar InventarioBomberos_v1.01.jar

@@ -30,6 +30,7 @@ public class MainFrame extends JFrame implements BodegaObserver {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         initComponents(); // Iniciar la interfaz primero
+        setJMenuBar(createMenuBar());
 
         // Cargar los datos en segundo plano después de inicializar la UI
         new SwingWorker<Void, Void>() {
@@ -43,6 +44,9 @@ public class MainFrame extends JFrame implements BodegaObserver {
                 return null;
             }
         }.execute();
+
+        add(createStatusBar(), BorderLayout.SOUTH);
+
     }
 
     private void initComponents() {
@@ -319,7 +323,7 @@ public class MainFrame extends JFrame implements BodegaObserver {
 
         // 🔄 Botón de refresco
         JButton refrescarButton = new JButton("Refrescar");
-        refrescarButton.addActionListener(e -> cargarDatosTabla());
+        refrescarButton.addActionListener(e -> aplicarFiltros()); // Antes llamaba a cargarDatosTabla()
         panel.add(refrescarButton);
 
         return panel;
@@ -377,26 +381,28 @@ public class MainFrame extends JFrame implements BodegaObserver {
 
     private void actualizarTabla(List<ProductoForm> productos) {
         DefaultTableModel model = (DefaultTableModel) inventarioTable.getModel();
-        model.setRowCount(0); // Limpiar la tabla
+        model.setRowCount(0); // Limpiar la tabla antes de actualizar
+
         for (ProductoForm producto : productos) {
             model.addRow(new Object[]{
                     producto.getId(),
                     producto.getNombre(),
                     producto.getCantidad(),
-                    producto.getFechaIngreso(),
+                    new SimpleDateFormat("yyyy-MM-dd").format(producto.getFechaIngreso()),
                     producto.getUbicacion(),
-                    producto.getIdBodegaPrincipal(),
-                    producto.getIdSubbodega()
+                    producto.getNombreBodegaPrincipal() != null ? producto.getNombreBodegaPrincipal() : "Desconocida",
+                    producto.getNombreSubbodega() != null ? producto.getNombreSubbodega() : "Desconocida"
             });
         }
+
         inventarioTable.revalidate();
         inventarioTable.repaint();
     }
 
     private void cargarDatosTablaConFiltros(String textoBusqueda, String bodegaSeleccionada, String subbodegaSeleccionada) {
         try {
-            Integer idBodega = bodegaPrincipalMap.getOrDefault(bodegaSeleccionada, null);
-            Integer idSubbodega = subbodegaMap.getOrDefault(subbodegaSeleccionada, null);
+            Integer idBodega = "Todas las bodegas".equals(bodegaSeleccionada) ? null : bodegaPrincipalMap.get(bodegaSeleccionada);
+            Integer idSubbodega = "Todas las subbodegas".equals(subbodegaSeleccionada) ? null : subbodegaMap.get(subbodegaSeleccionada);
 
             List<ProductoForm> productos = productoDAO.buscarProductosPorFiltros(
                     textoBusqueda, idBodega, idSubbodega
@@ -412,8 +418,8 @@ public class MainFrame extends JFrame implements BodegaObserver {
                         producto.getCantidad(),
                         new SimpleDateFormat("yyyy-MM-dd").format(producto.getFechaIngreso()),
                         producto.getUbicacion(),
-                        producto.getNombreBodegaPrincipal(),
-                        producto.getNombreSubbodega()
+                        producto.getNombreBodegaPrincipal() != null ? producto.getNombreBodegaPrincipal() : "Desconocida",
+                        producto.getNombreSubbodega() != null ? producto.getNombreSubbodega() : "Desconocida"
                 });
             }
         } catch (Exception ex) {
@@ -577,5 +583,57 @@ public class MainFrame extends JFrame implements BodegaObserver {
     public void actualizarBodegas() {
         refrescarBodegas();
     }
+
+    private JPanel createStatusBar() {
+        JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JLabel versionLabel = new JLabel("Versión: v1.01");
+        statusBar.add(versionLabel);
+        return statusBar;
+    }
+
+    private JMenuBar createMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+
+        // Menú principal
+        JMenu menu = new JMenu("Opciones");
+
+        // Opción: Gestionar Bodegas
+        JMenuItem gestionarBodegasItem = new JMenuItem("Gestionar Bodegas");
+        gestionarBodegasItem.addActionListener(e -> abrirGestionBodegas());
+        menu.add(gestionarBodegasItem);
+
+        // Opción: Cerrar Sesión
+        JMenuItem cerrarSesionItem = new JMenuItem("Cerrar Sesión");
+        cerrarSesionItem.addActionListener(e -> cerrarSesion());
+        menu.add(cerrarSesionItem);
+
+        menuBar.add(menu);
+        return menuBar;
+    }
+
+    private void abrirGestionBodegas() {
+        GestionBodegasFrame frame = new GestionBodegasFrame(this);
+        frame.agregarObservador(this);
+        frame.setVisible(true);
+    }
+
+    private String obtenerNombreBodegaPrincipal(int idBodegaPrincipal) {
+        for (Map.Entry<String, Integer> entry : bodegaPrincipalMap.entrySet()) {
+            if (entry.getValue() == idBodegaPrincipal) {
+                return entry.getKey();
+            }
+        }
+        return "Desconocida";
+    }
+
+    private String obtenerNombreSubbodega(int idSubbodega) {
+        for (Map.Entry<String, Integer> entry : subbodegaMap.entrySet()) {
+            if (entry.getValue() == idSubbodega) {
+                return entry.getKey();
+            }
+        }
+        return "Desconocida";
+    }
+
 
 }

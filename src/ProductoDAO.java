@@ -21,30 +21,42 @@ public class ProductoDAO {
     // Método para obtener todos los productos con la información de la bodega principal y subbodega
     public List<ProductoForm> obtenerProductosConBodega(int limite, int offset) throws SQLException {
         List<ProductoForm> productos = new ArrayList<>();
-        String sql = "SELECT p.idproducto, p.nombre, bp.cantidad, p.fechaingreso, p.ubicacion, " +
-                "bp.idbodega_principal, bp.idsubbodega " +
+
+        String sql = "SELECT " +
+                "    p.idproducto, " +
+                "    p.nombre, " +
+                "    p.cantidad, " +
+                "    p.fechaingreso, " +
+                "    p.ubicacion, " +
+                "    bp2.nombre AS nombre_bodega_principal, " +  // Alias correcto
+                "    sb.nombre AS nombre_subbodega " +          // Alias correcto
                 "FROM producto p " +
                 "JOIN bodega_producto bp ON p.idproducto = bp.idproducto " +
-                "LIMIT ? OFFSET ?";
+                "JOIN bodega_principal bp2 ON bp.idbodega_principal = bp2.idbodega_principal " +
+                "JOIN subbodega sb ON bp.idsubbodega = sb.idsubbodega " +
+                "LIMIT ? OFFSET ?";  // Agregar límite y desplazamiento
 
-        // Cierre automático de recursos (Conexión, PreparedStatement y ResultSet)
         try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql);
-             ResultSet rs = pstmt.executeQuery()) {
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            pstmt.setInt(1, limite);
-            pstmt.setInt(2, offset);
+            stmt.setInt(1, limite);
+            stmt.setInt(2, offset);
 
-            while (rs.next()) {
-                productos.add(new ProductoForm(
-                        rs.getInt("idproducto"),
-                        rs.getString("nombre"),
-                        rs.getInt("cantidad"),
-                        rs.getDate("fechaingreso"),
-                        rs.getString("ubicacion"),
-                        rs.getInt("idbodega_principal"),
-                        rs.getInt("idsubbodega")
-                ));
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    ProductoForm producto = new ProductoForm(
+                            rs.getInt("idproducto"),
+                            rs.getString("nombre"),
+                            rs.getInt("cantidad"),
+                            rs.getDate("fechaingreso"),
+                            rs.getString("ubicacion"),
+                            0,  // No estás almacenando el ID de la bodega en ProductoForm, por lo que se deja en 0.
+                            0,  // Lo mismo para la subbodega.
+                            rs.getString("nombre_bodega_principal"),  // Nombre correcto del alias en SQL.
+                            rs.getString("nombre_subbodega")          // Nombre correcto del alias en SQL.
+                    );
+                    productos.add(producto);
+                }
             }
         }
         return productos;

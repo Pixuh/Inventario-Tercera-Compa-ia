@@ -1,6 +1,6 @@
 # 📦 Inventario - Tercera Compañía de Bomberos
 
-Este proyecto es una aplicación de gestión de inventario diseñada para la **Tercera Compañía de Bomberos**.  
+Este proyecto es una aplicación de gestión de inventario diseñada para las **Compañía de Bomberos**.  
 Permite la administración de productos, usuarios y bodegas, proporcionando una **interfaz gráfica amigable** desarrollada en **Java**.
 
 ---

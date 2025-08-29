@@ -65,36 +65,38 @@ public class ProductoDAO {
     // Método para agregar un producto
     public void agregarProducto(ProductoForm producto) throws SQLException {
         String verificarProducto = "SELECT idproducto FROM producto WHERE nombre = ?";
-        String insertarProducto = "INSERT INTO producto (nombre, cantidad, fechaingreso, ubicacion) VALUES (?, ?, ?, ?)";
+        String insertarProducto  = "INSERT INTO producto (nombre, cantidad, fechaingreso, ubicacion, idbodega_principal, idsubbodega) " +
+                "VALUES (?, ?, ?, ?, ?, ?)";
         String verificarBodegaProducto = "SELECT cantidad FROM bodega_producto WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
-        String actualizarCantidad = "UPDATE bodega_producto SET cantidad = cantidad + ? WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
-        String insertarBodegaProducto = "INSERT INTO bodega_producto (idproducto, idbodega_principal, idsubbodega, cantidad) VALUES (?, ?, ?, ?)";
+        String actualizarCantidad      = "UPDATE bodega_producto SET cantidad = cantidad + ? WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
+        String insertarBodegaProducto  = "INSERT INTO bodega_producto (idproducto, idbodega_principal, idsubbodega, cantidad) VALUES (?, ?, ?, ?)";
 
         try (Connection conn = DatabaseConnection.getConnection()) {
             conn.setAutoCommit(false);
-
             int idProducto;
 
-            // Verificar si el producto ya existe en la tabla `producto`
-            try (PreparedStatement pstmtVerificarProducto = conn.prepareStatement(verificarProducto);
-                 PreparedStatement pstmtInsertarProducto = conn.prepareStatement(insertarProducto, Statement.RETURN_GENERATED_KEYS)) {
+            // 1) ¿Existe el producto por nombre?
+            try (PreparedStatement psVerProd = conn.prepareStatement(verificarProducto);
+                 PreparedStatement psInsProd = conn.prepareStatement(insertarProducto, Statement.RETURN_GENERATED_KEYS)) {
 
-                pstmtVerificarProducto.setString(1, producto.getNombre());
+                psVerProd.setString(1, producto.getNombre());
 
-                try (ResultSet rs = pstmtVerificarProducto.executeQuery()) {
+                try (ResultSet rs = psVerProd.executeQuery()) {
                     if (rs.next()) {
-                        idProducto = rs.getInt("idproducto"); // Producto ya existe
+                        idProducto = rs.getInt("idproducto"); // Ya existe
                     } else {
-                        // Insertar nuevo producto en la tabla `producto`
-                        pstmtInsertarProducto.setString(1, producto.getNombre());
-                        pstmtInsertarProducto.setInt(2, producto.getCantidad());
-                        pstmtInsertarProducto.setDate(3, new java.sql.Date(producto.getFechaIngreso().getTime()));
-                        pstmtInsertarProducto.setString(4, producto.getUbicacion());
-                        pstmtInsertarProducto.executeUpdate();
+                        // 2) Insertar en producto (incluyendo IDs obligatorios)
+                        psInsProd.setString(1, producto.getNombre());
+                        psInsProd.setInt(2, producto.getCantidad());
+                        psInsProd.setDate(3, new java.sql.Date(producto.getFechaIngreso().getTime()));
+                        psInsProd.setString(4, producto.getUbicacion());
+                        psInsProd.setInt(5, producto.getIdBodegaPrincipal()); // ← FALTABA
+                        psInsProd.setInt(6, producto.getIdSubbodega());       // ← FALTABA
+                        psInsProd.executeUpdate();
 
-                        try (ResultSet generatedKeys = pstmtInsertarProducto.getGeneratedKeys()) {
-                            if (generatedKeys.next()) {
-                                idProducto = generatedKeys.getInt(1);
+                        try (ResultSet keys = psInsProd.getGeneratedKeys()) {
+                            if (keys.next()) {
+                                idProducto = keys.getInt(1);
                             } else {
                                 throw new SQLException("No se pudo obtener el ID del nuevo producto.");
                             }
@@ -103,31 +105,30 @@ public class ProductoDAO {
                 }
             }
 
-            // Verificar si el producto ya existe en la bodega y subbodega
-            try (PreparedStatement pstmtVerificarBodegaProducto = conn.prepareStatement(verificarBodegaProducto);
-                 PreparedStatement pstmtActualizarCantidad = conn.prepareStatement(actualizarCantidad);
-                 PreparedStatement pstmtInsertarBodegaProducto = conn.prepareStatement(insertarBodegaProducto)) {
+            // 3) Upsert en bodega_producto
+            try (PreparedStatement psVerBP = conn.prepareStatement(verificarBodegaProducto);
+                 PreparedStatement psUpdBP = conn.prepareStatement(actualizarCantidad);
+                 PreparedStatement psInsBP = conn.prepareStatement(insertarBodegaProducto)) {
 
-                pstmtVerificarBodegaProducto.setInt(1, idProducto);
-                pstmtVerificarBodegaProducto.setInt(2, producto.getIdBodegaPrincipal());
-                pstmtVerificarBodegaProducto.setInt(3, producto.getIdSubbodega());
+                psVerBP.setInt(1, idProducto);
+                psVerBP.setInt(2, producto.getIdBodegaPrincipal());
+                psVerBP.setInt(3, producto.getIdSubbodega());
 
-                try (ResultSet rs = pstmtVerificarBodegaProducto.executeQuery()) {
+                try (ResultSet rs = psVerBP.executeQuery()) {
                     if (rs.next()) {
-                        // Producto ya existe en la bodega: actualizar cantidad
-                        int nuevaCantidad = producto.getCantidad();
-                        pstmtActualizarCantidad.setInt(1, nuevaCantidad);
-                        pstmtActualizarCantidad.setInt(2, idProducto);
-                        pstmtActualizarCantidad.setInt(3, producto.getIdBodegaPrincipal());
-                        pstmtActualizarCantidad.setInt(4, producto.getIdSubbodega());
-                        pstmtActualizarCantidad.executeUpdate();
+                        // Ya existe en esa bodega/subbodega → sumar cantidad
+                        psUpdBP.setInt(1, producto.getCantidad());
+                        psUpdBP.setInt(2, idProducto);
+                        psUpdBP.setInt(3, producto.getIdBodegaPrincipal());
+                        psUpdBP.setInt(4, producto.getIdSubbodega());
+                        psUpdBP.executeUpdate();
                     } else {
-                        // Producto no existe en la bodega: insertar nuevo registro
-                        pstmtInsertarBodegaProducto.setInt(1, idProducto);
-                        pstmtInsertarBodegaProducto.setInt(2, producto.getIdBodegaPrincipal());
-                        pstmtInsertarBodegaProducto.setInt(3, producto.getIdSubbodega());
-                        pstmtInsertarBodegaProducto.setInt(4, producto.getCantidad());
-                        pstmtInsertarBodegaProducto.executeUpdate();
+                        // No existe → insertar relación
+                        psInsBP.setInt(1, idProducto);
+                        psInsBP.setInt(2, producto.getIdBodegaPrincipal());
+                        psInsBP.setInt(3, producto.getIdSubbodega());
+                        psInsBP.setInt(4, producto.getCantidad());
+                        psInsBP.executeUpdate();
                     }
                 }
             }
@@ -137,6 +138,7 @@ public class ProductoDAO {
             throw new SQLException("Error al agregar producto: " + ex.getMessage(), ex);
         }
     }
+
 
     // Método para obtener un producto por su ID
     public ProductoForm obtenerProductoPorId(int idProducto) throws SQLException {
@@ -169,44 +171,111 @@ public class ProductoDAO {
     }
 
     // Método para mover un producto entre bodegas
-    public void moverProducto(int idProducto, int idBodegaOrigen, int idSubbodegaOrigen,
-                              int idBodegaDestino, int idSubbodegaDestino, int cantidadMover) throws SQLException {
-        String restarCantidadQuery = "UPDATE bodega_producto SET cantidad = cantidad - ? WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
-        String sumarCantidadQuery = "INSERT INTO bodega_producto (idproducto, idbodega_principal, idsubbodega, cantidad) " +
-                "VALUES (?, ?, ?, ?) ON CONFLICT (idproducto, idbodega_principal, idsubbodega) " +
+    public void moverProducto(int idProducto,
+                              int idBodegaOrigen, int idSubbodegaOrigen,
+                              int idBodegaDestino, int idSubbodegaDestino,
+                              int cantidadMover) throws SQLException {
+
+        if (cantidadMover <= 0) throw new SQLException("La cantidad a mover debe ser mayor a cero.");
+        if (idBodegaOrigen == idBodegaDestino && idSubbodegaOrigen == idSubbodegaDestino) {
+            throw new SQLException("El origen y el destino no pueden ser iguales.");
+        }
+
+        final String lockOrigen = "SELECT cantidad FROM bodega_producto " +
+                "WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ? FOR UPDATE";
+
+        final String updateOrigen = "UPDATE bodega_producto SET cantidad = cantidad - ? " +
+                "WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
+
+        final String deleteOrigen = "DELETE FROM bodega_producto " +
+                "WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
+
+        final String upsertDestino = "INSERT INTO bodega_producto (idproducto, idbodega_principal, idsubbodega, cantidad) " +
+                "VALUES (?, ?, ?, ?) " +
+                "ON CONFLICT (idproducto, idbodega_principal, idsubbodega) " +
                 "DO UPDATE SET cantidad = bodega_producto.cantidad + EXCLUDED.cantidad";
 
-        try (Connection connection = DatabaseConnection.getConnection()) {
-            connection.setAutoCommit(false); // Iniciar transacción
+        // Capacidad destino (misma conexión/tx)
+        final String capacidadDestino = "SELECT sb.capacidad - COALESCE(SUM(bp.cantidad), 0) AS espacio_disponible " +
+                "FROM subbodega sb " +
+                "LEFT JOIN bodega_producto bp ON sb.idsubbodega = bp.idsubbodega " +
+                "WHERE sb.idsubbodega = ? " +
+                "GROUP BY sb.capacidad";
 
-            // Verificar capacidad en el destino
-            if (!verificarCapacidadSubbodega(idSubbodegaDestino, cantidadMover)) {
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            conn.setAutoCommit(false);
+
+            // 0) Validar capacidad en destino dentro de la misma transacción
+            int espacioDisponible = Integer.MAX_VALUE; // por si no hay registros en bp
+            try (PreparedStatement psCap = conn.prepareStatement(capacidadDestino)) {
+                psCap.setInt(1, idSubbodegaDestino);
+                try (ResultSet rs = psCap.executeQuery()) {
+                    if (rs.next()) {
+                        espacioDisponible = rs.getInt("espacio_disponible");
+                    }
+                }
+            }
+            if (espacioDisponible < cantidadMover) {
+                conn.rollback();
                 throw new SQLException("Espacio insuficiente en la subbodega destino.");
             }
 
-            // Restar cantidad en el origen
-            try (PreparedStatement restarStmt = connection.prepareStatement(restarCantidadQuery)) {
-                restarStmt.setInt(1, cantidadMover);
-                restarStmt.setInt(2, idProducto);
-                restarStmt.setInt(3, idBodegaOrigen);
-                restarStmt.setInt(4, idSubbodegaOrigen);
-                restarStmt.executeUpdate();
+            // 1) Lock + validación de stock en origen
+            int cantOrigen;
+            try (PreparedStatement psLock = conn.prepareStatement(lockOrigen)) {
+                psLock.setInt(1, idProducto);
+                psLock.setInt(2, idBodegaOrigen);
+                psLock.setInt(3, idSubbodegaOrigen);
+                try (ResultSet rs = psLock.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        throw new SQLException("El producto no existe en la ubicación de origen.");
+                    }
+                    cantOrigen = rs.getInt("cantidad");
+                }
+            }
+            if (cantidadMover > cantOrigen) {
+                conn.rollback();
+                throw new SQLException("Cantidad a mover excede la disponible en el origen.");
             }
 
-            // Sumar cantidad en el destino
-            try (PreparedStatement sumarStmt = connection.prepareStatement(sumarCantidadQuery)) {
-                sumarStmt.setInt(1, idProducto);
-                sumarStmt.setInt(2, idBodegaDestino);
-                sumarStmt.setInt(3, idSubbodegaDestino);
-                sumarStmt.setInt(4, cantidadMover);
-                sumarStmt.executeUpdate();
+            // 2) Restar en origen
+            try (PreparedStatement psUpd = conn.prepareStatement(updateOrigen)) {
+                psUpd.setInt(1, cantidadMover);
+                psUpd.setInt(2, idProducto);
+                psUpd.setInt(3, idBodegaOrigen);
+                psUpd.setInt(4, idSubbodegaOrigen);
+                if (psUpd.executeUpdate() == 0) {
+                    conn.rollback();
+                    throw new SQLException("No se pudo actualizar la cantidad en el origen.");
+                }
             }
 
-            connection.commit(); // Confirmar transacción
+            // 3) Borrar fila de origen si queda en 0 (opcional pero limpio)
+            if (cantOrigen - cantidadMover == 0) {
+                try (PreparedStatement psDel = conn.prepareStatement(deleteOrigen)) {
+                    psDel.setInt(1, idProducto);
+                    psDel.setInt(2, idBodegaOrigen);
+                    psDel.setInt(3, idSubbodegaOrigen);
+                    psDel.executeUpdate();
+                }
+            }
+
+            // 4) Upsert en destino
+            try (PreparedStatement psUpsert = conn.prepareStatement(upsertDestino)) {
+                psUpsert.setInt(1, idProducto);
+                psUpsert.setInt(2, idBodegaDestino);
+                psUpsert.setInt(3, idSubbodegaDestino);
+                psUpsert.setInt(4, cantidadMover);
+                psUpsert.executeUpdate();
+            }
+
+            conn.commit();
         } catch (SQLException ex) {
             throw new SQLException("Error al mover el producto: " + ex.getMessage(), ex);
         }
     }
+
 
     // Método para obtener todos los productos
     public List<ProductoForm> obtenerProductos() throws SQLException {
@@ -287,22 +356,14 @@ public class ProductoDAO {
 
     // Método para obtener nombres de productos
     public List<String> obtenerNombresProductos() throws SQLException {
-        List<String> nombresProductos = new ArrayList<>();
-        String query = "SELECT nombre FROM producto";
-
-        // Uso de try-with-resources para asegurar el cierre automático de las conexiones
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query);
-             ResultSet rs = stmt.executeQuery()) {
-
-            while (rs.next()) {
-                nombresProductos.add(rs.getString("nombre"));
-            }
-        } catch (SQLException e) {
-            throw new SQLException("Error al obtener nombres de productos: " + e.getMessage(), e);
+        List<String> nombres = new ArrayList<>();
+        String sql = "SELECT DISTINCT nombre FROM producto ORDER BY nombre";
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) nombres.add(rs.getString(1));
         }
-
-        return nombresProductos;
+        return nombres;
     }
 
     private boolean verificarCapacidadSubbodega(int idSubbodega, int cantidadMover) throws SQLException {
@@ -523,15 +584,19 @@ public class ProductoDAO {
 
     public List<ProductoForm> buscarProductosPorFiltros(String textoBusqueda, Integer idBodegaPrincipal, Integer idSubbodega) throws SQLException {
         List<ProductoForm> productos = new ArrayList<>();
+
         StringBuilder sql = new StringBuilder(
                 "SELECT p.idproducto, p.nombre, bp.cantidad, p.fechaingreso, p.ubicacion, " +
-                        "bp.idbodega_principal, bp.idsubbodega " +
-                        "FROM producto p " +
-                        "LEFT JOIN bodega_producto bp ON p.idproducto = bp.idproducto " +
+                        "       bp.idbodega_principal, bp.idsubbodega, " +
+                        "       bp2.nombre AS nombre_bodega_principal, " +
+                        "       sb.nombre  AS nombre_subbodega " +
+                        "FROM bodega_producto bp " +
+                        "JOIN producto p          ON p.idproducto = bp.idproducto " +
+                        "JOIN bodega_principal bp2 ON bp2.idbodega_principal = bp.idbodega_principal " +
+                        "JOIN subbodega sb         ON sb.idsubbodega = bp.idsubbodega " +
                         "WHERE 1=1 "
         );
 
-        // Construcción dinámica de la consulta
         if (textoBusqueda != null && !textoBusqueda.isEmpty()) {
             sql.append("AND p.nombre ILIKE ? ");
         }
@@ -545,17 +610,15 @@ public class ProductoDAO {
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
 
-            int index = 1;
-
-            // Establecer parámetros
+            int i = 1;
             if (textoBusqueda != null && !textoBusqueda.isEmpty()) {
-                stmt.setString(index++, "%" + textoBusqueda + "%");
+                stmt.setString(i++, "%" + textoBusqueda + "%");
             }
             if (idBodegaPrincipal != null) {
-                stmt.setInt(index++, idBodegaPrincipal);
+                stmt.setInt(i++, idBodegaPrincipal);
             }
             if (idSubbodega != null) {
-                stmt.setInt(index++, idSubbodega);
+                stmt.setInt(i++, idSubbodega);
             }
 
             try (ResultSet rs = stmt.executeQuery()) {
@@ -567,7 +630,9 @@ public class ProductoDAO {
                             rs.getDate("fechaingreso"),
                             rs.getString("ubicacion"),
                             rs.getInt("idbodega_principal"),
-                            rs.getInt("idsubbodega")
+                            rs.getInt("idsubbodega"),
+                            rs.getString("nombre_bodega_principal"),
+                            rs.getString("nombre_subbodega")
                     ));
                 }
             }
@@ -575,6 +640,7 @@ public class ProductoDAO {
 
         return productos;
     }
+
 
     public int obtenerSiguienteId() throws SQLException {
         String sql = "SELECT COALESCE(MAX(idproducto), 0) + 1 AS siguiente_id FROM producto";
@@ -586,6 +652,37 @@ public class ProductoDAO {
             }
         }
         return 1; // Si no hay productos, el ID inicial será 1
+    }
+
+    public static class UbicacionProducto {
+        public final int idBodega, idSubbodega, cantidad;
+        public final String nombreBodega, nombreSubbodega;
+        public UbicacionProducto(int idBodega, int idSubbodega, int cantidad, String nb, String ns) {
+            this.idBodega = idBodega; this.idSubbodega = idSubbodega; this.cantidad = cantidad;
+            this.nombreBodega = nb; this.nombreSubbodega = ns;
+        }
+    }
+
+    public List<String[]> obtenerUbicacionesDeProducto(String nombreProducto) throws SQLException {
+        String sql =
+                "SELECT bp2.nombre AS bodega, sb.nombre AS subbodega " +
+                        "FROM producto p " +
+                        "JOIN bodega_producto bp ON p.idproducto = bp.idproducto " +
+                        "JOIN bodega_principal bp2 ON bp.idbodega_principal = bp2.idbodega_principal " +
+                        "JOIN subbodega sb ON bp.idsubbodega = sb.idsubbodega " +
+                        "WHERE p.nombre = ? AND bp.cantidad > 0 " +
+                        "ORDER BY bp2.nombre, sb.nombre";
+        List<String[]> res = new ArrayList<>();
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement st = conn.prepareStatement(sql)) {
+            st.setString(1, nombreProducto);
+            try (ResultSet rs = st.executeQuery()) {
+                while (rs.next()) {
+                    res.add(new String[]{ rs.getString("bodega"), rs.getString("subbodega") });
+                }
+            }
+        }
+        return res;
     }
 
 }

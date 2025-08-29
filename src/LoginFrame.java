@@ -12,15 +12,13 @@ public class LoginFrame extends JFrame {
 
     public LoginFrame() {
         setTitle("Inicio de Sesión");
-        setSize(450, 300); // Tamaño ampliado para mejor diseño
+        setSize(450, 300);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        // Panel principal con BorderLayout
         JPanel mainPanel = new JPanel(new BorderLayout());
         mainPanel.setBackground(new Color(240, 240, 240));
 
-        // Logo panel (izquierda)
         JPanel logoPanel = new JPanel(new GridBagLayout());
         logoPanel.setBackground(new Color(240, 240, 240));
         JLabel logoLabel = new JLabel();
@@ -29,14 +27,11 @@ public class LoginFrame extends JFrame {
         logoLabel.setIcon(new ImageIcon(scaledLogo));
         logoPanel.add(logoLabel, new GridBagConstraints());
 
-
-        // Panel de formulario (derecha)
         JPanel formPanel = new JPanel();
         formPanel.setLayout(new BoxLayout(formPanel, BoxLayout.Y_AXIS));
         formPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
         formPanel.setBackground(Color.WHITE);
 
-        // Estilo de los campos de entrada
         JLabel userLabel = new JLabel("Nombre de Usuario:");
         userLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         userField = new JTextField();
@@ -55,7 +50,6 @@ public class LoginFrame extends JFrame {
                 BorderFactory.createEmptyBorder(5, 5, 5, 5)
         ));
 
-        // Botón estilizado
         JButton loginButton = new JButton("Iniciar Sesión");
         loginButton.setAlignmentX(Component.CENTER_ALIGNMENT);
         loginButton.setFocusPainted(false);
@@ -72,7 +66,6 @@ public class LoginFrame extends JFrame {
             authenticate(nombreUsuario, password, loginButton);
         });
 
-        // Agregar componentes al formulario
         formPanel.add(userLabel);
         formPanel.add(Box.createRigidArea(new Dimension(0, 5)));
         formPanel.add(userField);
@@ -85,7 +78,6 @@ public class LoginFrame extends JFrame {
 
         formPanel.add(loginButton);
 
-        // Agregar los paneles al contenedor principal
         mainPanel.add(logoPanel, BorderLayout.WEST);
         mainPanel.add(formPanel, BorderLayout.CENTER);
 
@@ -99,7 +91,7 @@ public class LoginFrame extends JFrame {
             return;
         }
 
-        loginButton.setEnabled(false); // Deshabilitar el botón mientras se procesa
+        loginButton.setEnabled(false);
         SwingUtilities.invokeLater(() -> {
             Connection conn = null;
             PreparedStatement stmt = null;
@@ -107,16 +99,14 @@ public class LoginFrame extends JFrame {
 
             try {
                 conn = DatabaseConnection.getConnection();
-                stmt = conn.prepareStatement(
-                        "SELECT rol FROM usuario WHERE nombre = ? AND contrasena = ?"
-                );
+                stmt = conn.prepareStatement("SELECT rol FROM usuario WHERE nombre = ? AND contrasena = ?");
                 stmt.setString(1, nombreUsuario);
                 stmt.setString(2, password);
 
                 rs = stmt.executeQuery();
                 if (rs.next()) {
                     String rol = rs.getString("rol");
-                    dispose(); // Cerrar ventana de inicio de sesión
+                    dispose();
                     abrirVentanaPorRol(rol);
                 } else {
                     JOptionPane.showMessageDialog(null, "Usuario o contraseña incorrectos.");
@@ -125,41 +115,26 @@ public class LoginFrame extends JFrame {
                 e.printStackTrace();
                 JOptionPane.showMessageDialog(null, "Error en la conexión a la base de datos.");
             } finally {
-                // Cierre seguro de recursos
-                if (rs != null) {
-                    try {
-                        rs.close();
-                    } catch (SQLException e) {
-                        e.printStackTrace();
-                    }
+                try {
+                    if (rs != null) rs.close();
+                    if (stmt != null) stmt.close();
+                    if (conn != null) DatabaseConnection.closeConnection(conn);
+                } catch (SQLException e) {
+                    e.printStackTrace();
                 }
-                if (stmt != null) {
-                    try {
-                        stmt.close();
-                    } catch (SQLException e) {
-                        e.printStackTrace();
-                    }
-                }
-                DatabaseConnection.closeConnection(conn);
                 loginButton.setEnabled(true);
             }
         });
-
     }
 
     private void abrirVentanaPorRol(String rol) {
-        if ("admin".equalsIgnoreCase(rol)) {
+        if ("ADMIN".equalsIgnoreCase(rol)) {
             new MainFrame().setVisible(true);
-        } else if ("usuario".equalsIgnoreCase(rol)) {
+        } else if ("USUARIO".equalsIgnoreCase(rol)) {
             new UsuarioFrame().setVisible(true);
         } else {
             JOptionPane.showMessageDialog(this, "Rol desconocido: " + rol, "Error", JOptionPane.ERROR_MESSAGE);
         }
-    }
-
-    private void limpiarCampos() {
-        userField.setText("");
-        passField.setText("");
     }
 
     public static void main(String[] args) {

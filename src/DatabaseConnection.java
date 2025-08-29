@@ -10,8 +10,8 @@ public class DatabaseConnection {
     static {
         try {
             HikariConfig config = new HikariConfig();
-            config.setJdbcUrl("jdbc:postgresql://3.86.100.202:5432/inventario_bomberos");
-            //config.setJdbcUrl("jdbc:postgresql://localhost:5432/postgres");
+            //config.setJdbcUrl("jdbc:postgresql://3.86.100.202:5432/inventario_bomberos");
+            config.setJdbcUrl("jdbc:postgresql://localhost:5432/inventariodb");
             config.setUsername("postgres");
             config.setPassword("admin123");
 

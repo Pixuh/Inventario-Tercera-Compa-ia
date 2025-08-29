@@ -171,4 +171,25 @@ public class BodegaDAO {
             }
         }
     }
+
+    public Map<String, Integer> obtenerSubbodegasPorIdPrincipal(int idBodegaPrincipal) throws SQLException {
+        Map<String, Integer> subbodegas = new HashMap<>();
+
+        String sql = "SELECT idsubbodega, nombre FROM subbodega WHERE idbodega_principal = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, idBodegaPrincipal);
+            ResultSet rs = stmt.executeQuery();
+
+            while (rs.next()) {
+                int id = rs.getInt("idsubbodega");
+                String nombre = rs.getString("nombre");
+                subbodegas.put(nombre, id);
+            }
+        }
+        return subbodegas;
+    }
+
 }
+

@@ -25,7 +25,7 @@ La versión más reciente del software está disponible para su descarga:
 ## Requisitos
 Para ejecutar el archivo JAR, asegúrate de tener instalado:
 
-- [Java JDK 11 o superior](https://download.oracle.com/java/23/latest/jdk-23_windows-x64_bin.exe)
+- [Java JDK 11 o superior]
 
 ---
 

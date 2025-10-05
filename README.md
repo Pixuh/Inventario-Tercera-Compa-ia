@@ -16,7 +16,7 @@ La versión más reciente del software está disponible para su descarga:
 ## Historial de versiones
 | Versión | Descripción | Enlace de descarga |
 |----------|--------------|--------------------|
-| v1.03 | Optimización de rendimiento y corrección de errores menores | [Descargar](https://raw.githubusercontent.com/Pixuh/Inventario-Tercera-Compa-ia/main/release/InventarioBomberos_v1.03.jar) |
+| v1.03 | Optimización de rendimiento y corrección de errores menores | [Descargar](https://raw.githubusercontent.com/Pixuh/Inventario-Tercera-Compa-ia/main/release/inventarioBomberos%20v1.03.jar) |
 | v1.02 | Exportación CSV UTF-8, overlay de carga, optimización de DAOs | [Descargar](https://github.com/Pixuh/Inventario-Tercera-Compa-ia/releases/download/v1.02/InventarioBomberos_v1.02.jar) |
 | v1.01 | Versión inicial estable | [Descargar](https://github.com/Pixuh/Inventario-Tercera-Compa-ia/releases/download/v1.01/InventarioBomberos_v1.01.jar) |
 

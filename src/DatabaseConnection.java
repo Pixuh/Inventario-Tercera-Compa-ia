@@ -10,10 +10,14 @@ public class DatabaseConnection {
     static {
         try {
             HikariConfig config = new HikariConfig();
-            //config.setJdbcUrl("jdbc:postgresql://3.86.100.202:5432/inventario_bomberos");
-            config.setJdbcUrl("jdbc:postgresql://localhost:5432/inventariodb");
-            config.setUsername("postgres");
+            config.setJdbcUrl("jdbc:postgresql://200.35.159.169:5432/inventariodb_new");
+            //config.setJdbcUrl("jdbc:postgresql://200.35.159.169:5432/inventariodb");
+            config.setUsername("inventario_app");
             config.setPassword("admin123");
+
+//            config.setJdbcUrl("jdbc:postgresql://localhost:5432/inventariodb");
+//            config.setUsername("postgres");
+//            config.setPassword("admin123");
 
             // Configuraciones de rendimiento del pool
             config.setDriverClassName("org.postgresql.Driver");

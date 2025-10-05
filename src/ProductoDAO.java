@@ -4,37 +4,50 @@ import java.util.List;
 
 public class ProductoDAO {
 
-    private Connection connection;
+    // No abrimos conexión en el constructor
+    public ProductoDAO() {}
 
-    public ProductoDAO() {
-        Connection conn = null;
-        try {
-            conn = DatabaseConnection.getConnection();
-            this.connection = conn;
-        } catch (SQLException e) {
-            throw new RuntimeException("Error al conectar con la base de datos: " + e.getMessage());
-        } finally {
-            DatabaseConnection.closeConnection(conn);
+    // === NUEVO: Helpers EPP ===
+    public boolean esProductoEpp(int idProducto) throws SQLException {
+        String sql = "SELECT es_epp FROM producto WHERE idproducto = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, idProducto);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) throw new SQLException("Producto no encontrado (id=" + idProducto + ")");
+                return rs.getBoolean(1);
+            }
         }
     }
 
-    // Método para obtener todos los productos con la información de la bodega principal y subbodega
+    public void marcarProductoComoEpp(int idProducto, boolean esEpp, boolean esSerializable) throws SQLException {
+        String sql = "UPDATE producto SET es_epp = ?, es_serializable = ? WHERE idproducto = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setBoolean(1, esEpp);
+            ps.setBoolean(2, esSerializable);
+            ps.setInt(3, idProducto);
+            if (ps.executeUpdate() == 0) {
+                throw new SQLException("No se pudo actualizar flags EPP del producto (id=" + idProducto + ")");
+            }
+        }
+    }
+
+    // === Listado con nombres de bodega/subbodega y cantidad por ubicación ===
     public List<ProductoForm> obtenerProductosConBodega(int limite, int offset) throws SQLException {
         List<ProductoForm> productos = new ArrayList<>();
 
-        String sql = "SELECT " +
-                "    p.idproducto, " +
-                "    p.nombre, " +
-                "    p.cantidad, " +
-                "    p.fechaingreso, " +
-                "    p.ubicacion, " +
-                "    bp2.nombre AS nombre_bodega_principal, " +  // Alias correcto
-                "    sb.nombre AS nombre_subbodega " +          // Alias correcto
-                "FROM producto p " +
-                "JOIN bodega_producto bp ON p.idproducto = bp.idproducto " +
-                "JOIN bodega_principal bp2 ON bp.idbodega_principal = bp2.idbodega_principal " +
-                "JOIN subbodega sb ON bp.idsubbodega = sb.idsubbodega " +
-                "LIMIT ? OFFSET ?";  // Agregar límite y desplazamiento
+        String sql =
+                "SELECT p.idproducto, p.nombre, bp.cantidad, p.fechaingreso, p.ubicacion, " +
+                        "       bp.idbodega_principal, bp.idsubbodega, " +
+                        "       bp2.nombre AS nombre_bodega_principal, " +
+                        "       sb.nombre  AS nombre_subbodega " +
+                        "FROM producto p " +
+                        "JOIN bodega_producto bp   ON p.idproducto = bp.idproducto " +
+                        "JOIN bodega_principal bp2 ON bp.idbodega_principal = bp2.idbodega_principal " +
+                        "JOIN subbodega sb         ON bp.idsubbodega = sb.idsubbodega " +
+                        "ORDER BY p.idproducto ASC " +
+                        "LIMIT ? OFFSET ?";
 
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -44,103 +57,181 @@ public class ProductoDAO {
 
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
-                    ProductoForm producto = new ProductoForm(
+                    productos.add(new ProductoForm(
                             rs.getInt("idproducto"),
                             rs.getString("nombre"),
-                            rs.getInt("cantidad"),
+                            rs.getInt("cantidad"), // cantidad en esa subbodega
                             rs.getDate("fechaingreso"),
                             rs.getString("ubicacion"),
-                            0,  // No estás almacenando el ID de la bodega en ProductoForm, por lo que se deja en 0.
-                            0,  // Lo mismo para la subbodega.
-                            rs.getString("nombre_bodega_principal"),  // Nombre correcto del alias en SQL.
-                            rs.getString("nombre_subbodega")          // Nombre correcto del alias en SQL.
-                    );
-                    productos.add(producto);
+                            rs.getInt("idbodega_principal"),
+                            rs.getInt("idsubbodega"),
+                            rs.getString("nombre_bodega_principal"),
+                            rs.getString("nombre_subbodega")
+                    ));
                 }
             }
         }
         return productos;
     }
 
-    // Método para agregar un producto
     public void agregarProducto(ProductoForm producto) throws SQLException {
-        String verificarProducto = "SELECT idproducto FROM producto WHERE nombre = ?";
-        String insertarProducto  = "INSERT INTO producto (nombre, cantidad, fechaingreso, ubicacion, idbodega_principal, idsubbodega) " +
-                "VALUES (?, ?, ?, ?, ?, ?)";
-        String verificarBodegaProducto = "SELECT cantidad FROM bodega_producto WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
-        String actualizarCantidad      = "UPDATE bodega_producto SET cantidad = cantidad + ? WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
-        String insertarBodegaProducto  = "INSERT INTO bodega_producto (idproducto, idbodega_principal, idsubbodega, cantidad) VALUES (?, ?, ?, ?)";
+        String sqlEstado = "SELECT id_estado FROM producto_estado WHERE nombre = ?";
+        String sqlMaterial = "SELECT id_material FROM material_tipo WHERE nombre = ?";
+
+        Integer idEstado = null;
+        Integer idMaterial = null;
 
         try (Connection conn = DatabaseConnection.getConnection()) {
             conn.setAutoCommit(false);
-            int idProducto;
-
-            // 1) ¿Existe el producto por nombre?
-            try (PreparedStatement psVerProd = conn.prepareStatement(verificarProducto);
-                 PreparedStatement psInsProd = conn.prepareStatement(insertarProducto, Statement.RETURN_GENERATED_KEYS)) {
-
-                psVerProd.setString(1, producto.getNombre());
-
-                try (ResultSet rs = psVerProd.executeQuery()) {
-                    if (rs.next()) {
-                        idProducto = rs.getInt("idproducto"); // Ya existe
-                    } else {
-                        // 2) Insertar en producto (incluyendo IDs obligatorios)
-                        psInsProd.setString(1, producto.getNombre());
-                        psInsProd.setInt(2, producto.getCantidad());
-                        psInsProd.setDate(3, new java.sql.Date(producto.getFechaIngreso().getTime()));
-                        psInsProd.setString(4, producto.getUbicacion());
-                        psInsProd.setInt(5, producto.getIdBodegaPrincipal()); // ← FALTABA
-                        psInsProd.setInt(6, producto.getIdSubbodega());       // ← FALTABA
-                        psInsProd.executeUpdate();
-
-                        try (ResultSet keys = psInsProd.getGeneratedKeys()) {
-                            if (keys.next()) {
-                                idProducto = keys.getInt(1);
-                            } else {
-                                throw new SQLException("No se pudo obtener el ID del nuevo producto.");
-                            }
+            try {
+                // === Resolver FKs por nombre (opcionales) ===
+                if (producto.getEstadoProducto() != null) {
+                    try (PreparedStatement ps = conn.prepareStatement(sqlEstado)) {
+                        ps.setString(1, producto.getEstadoProducto());
+                        try (ResultSet rs = ps.executeQuery()) {
+                            if (rs.next()) idEstado = rs.getInt(1);
                         }
                     }
                 }
-            }
-
-            // 3) Upsert en bodega_producto
-            try (PreparedStatement psVerBP = conn.prepareStatement(verificarBodegaProducto);
-                 PreparedStatement psUpdBP = conn.prepareStatement(actualizarCantidad);
-                 PreparedStatement psInsBP = conn.prepareStatement(insertarBodegaProducto)) {
-
-                psVerBP.setInt(1, idProducto);
-                psVerBP.setInt(2, producto.getIdBodegaPrincipal());
-                psVerBP.setInt(3, producto.getIdSubbodega());
-
-                try (ResultSet rs = psVerBP.executeQuery()) {
-                    if (rs.next()) {
-                        // Ya existe en esa bodega/subbodega → sumar cantidad
-                        psUpdBP.setInt(1, producto.getCantidad());
-                        psUpdBP.setInt(2, idProducto);
-                        psUpdBP.setInt(3, producto.getIdBodegaPrincipal());
-                        psUpdBP.setInt(4, producto.getIdSubbodega());
-                        psUpdBP.executeUpdate();
-                    } else {
-                        // No existe → insertar relación
-                        psInsBP.setInt(1, idProducto);
-                        psInsBP.setInt(2, producto.getIdBodegaPrincipal());
-                        psInsBP.setInt(3, producto.getIdSubbodega());
-                        psInsBP.setInt(4, producto.getCantidad());
-                        psInsBP.executeUpdate();
+                if (producto.getTipoMaterial() != null) {
+                    try (PreparedStatement ps = conn.prepareStatement(sqlMaterial)) {
+                        ps.setString(1, producto.getTipoMaterial());
+                        try (ResultSet rs = ps.executeQuery()) {
+                            if (rs.next()) idMaterial = rs.getInt(1);
+                        }
                     }
                 }
-            }
 
-            conn.commit();
-        } catch (SQLException ex) {
-            throw new SQLException("Error al agregar producto: " + ex.getMessage(), ex);
+                // === INSERT a producto (devolviendo id) ===
+                String sqlIns = """
+                INSERT INTO producto
+                (nombre, cantidad, fechaingreso, ubicacion,
+                 idbodega_principal, idsubbodega,
+                 marca, valor_referencial, id_estado, id_material,
+                 observacion, requiere_mantencion, frecuencia_mantencion_meses,
+                 aplica_vencimiento, es_epp, es_serializable)
+                VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?, ?)
+                """;
+
+                int idProductoGenerado;
+
+                try (PreparedStatement psIns = conn.prepareStatement(sqlIns, Statement.RETURN_GENERATED_KEYS)) {
+                    int i = 1;
+                    psIns.setString(i++, producto.getNombre());
+                    psIns.setInt(i++, producto.getCantidad());
+                    psIns.setDate(i++, new java.sql.Date(producto.getFechaIngreso().getTime()));
+                    psIns.setString(i++, producto.getUbicacion());
+
+                    psIns.setInt(i++, producto.getIdBodegaPrincipal());
+                    psIns.setInt(i++, producto.getIdSubbodega());
+
+                    // marca
+                    if (producto.getMarca() != null && !producto.getMarca().isEmpty())
+                        psIns.setString(i++, producto.getMarca());
+                    else
+                        psIns.setNull(i++, Types.VARCHAR);
+
+                    // valor_referencial
+                    if (producto.getValor() != null)
+                        psIns.setBigDecimal(i++, producto.getValor());
+                    else
+                        psIns.setNull(i++, Types.NUMERIC);
+
+                    // id_estado
+                    if (idEstado != null)
+                        psIns.setInt(i++, idEstado);
+                    else
+                        psIns.setNull(i++, Types.INTEGER);
+
+                    // id_material
+                    if (idMaterial != null)
+                        psIns.setInt(i++, idMaterial);
+                    else
+                        psIns.setNull(i++, Types.INTEGER);
+
+                    // observacion
+                    if (producto.getObservacion() != null && !producto.getObservacion().isEmpty())
+                        psIns.setString(i++, producto.getObservacion());
+                    else
+                        psIns.setNull(i++, Types.VARCHAR);
+
+                    // requiere_mantencion
+                    if (producto.getRequiereMantencion() != null)
+                        psIns.setBoolean(i++, producto.getRequiereMantencion());
+                    else
+                        psIns.setNull(i++, Types.BOOLEAN);
+
+                    // frecuencia_mantencion_meses
+                    if (producto.getFrecuenciaMantencionMeses() != null)
+                        psIns.setInt(i++, producto.getFrecuenciaMantencionMeses());
+                    else
+                        psIns.setNull(i++, Types.INTEGER);
+
+                    // aplica_vencimiento (¡nunca null!)
+                    psIns.setBoolean(i++, Boolean.TRUE.equals(producto.getAplicaVencimiento()));
+
+                    // es_epp
+                    if (producto.getEsEpp() != null)
+                        psIns.setBoolean(i++, producto.getEsEpp());
+                    else
+                        psIns.setNull(i++, Types.BOOLEAN);
+
+                    // es_serializable
+                    if (producto.getEsSerializable() != null)
+                        psIns.setBoolean(i++, producto.getEsSerializable());
+                    else
+                        psIns.setNull(i++, Types.BOOLEAN);
+
+                    psIns.executeUpdate();
+
+                    try (ResultSet keys = psIns.getGeneratedKeys()) {
+                        if (!keys.next()) throw new SQLException("No se pudo obtener el ID del nuevo producto.");
+                        idProductoGenerado = keys.getInt(1);
+                    }
+                }
+
+                // === Upsert en bodega_producto ===
+                // Si ya existe fila para (producto, bodega, subbodega), sumamos; si no, insertamos.
+                String sqlUpsert = """
+                INSERT INTO bodega_producto (idproducto, idbodega_principal, idsubbodega, cantidad)
+                VALUES (?,?,?,?)
+                ON CONFLICT (idproducto, idbodega_principal, idsubbodega)
+                DO UPDATE SET cantidad = bodega_producto.cantidad + EXCLUDED.cantidad
+                """;
+
+                try (PreparedStatement psBP = conn.prepareStatement(sqlUpsert)) {
+                    psBP.setInt(1, idProductoGenerado);
+                    psBP.setInt(2, producto.getIdBodegaPrincipal());
+                    psBP.setInt(3, producto.getIdSubbodega());
+                    psBP.setInt(4, producto.getCantidad());
+                    psBP.executeUpdate();
+                }
+
+                // === Mantener cantidad total en producto (suma de todas las ubicaciones) ===
+                String sqlSyncCantidad = """
+                UPDATE producto p
+                SET cantidad = COALESCE(t.total,0)
+                FROM (SELECT idproducto, SUM(cantidad) AS total
+                      FROM bodega_producto
+                      GROUP BY idproducto) t
+                WHERE p.idproducto = t.idproducto AND p.idproducto = ?
+                """;
+                try (PreparedStatement psSum = conn.prepareStatement(sqlSyncCantidad)) {
+                    psSum.setInt(1, idProductoGenerado);
+                    psSum.executeUpdate();
+                }
+
+                conn.commit();
+            } catch (SQLException ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
+            }
         }
     }
 
-
-    // Método para obtener un producto por su ID
+    // === Obtener por ID (datos básicos) ===
     public ProductoForm obtenerProductoPorId(int idProducto) throws SQLException {
         String query = "SELECT idproducto, nombre, cantidad, fechaingreso, ubicacion, idbodega_principal, idsubbodega " +
                 "FROM producto WHERE idproducto = ?";
@@ -170,114 +261,7 @@ public class ProductoDAO {
         throw new SQLException("No se encontró el producto con ID: " + idProducto);
     }
 
-    // Método para mover un producto entre bodegas
-    public void moverProducto(int idProducto,
-                              int idBodegaOrigen, int idSubbodegaOrigen,
-                              int idBodegaDestino, int idSubbodegaDestino,
-                              int cantidadMover) throws SQLException {
-
-        if (cantidadMover <= 0) throw new SQLException("La cantidad a mover debe ser mayor a cero.");
-        if (idBodegaOrigen == idBodegaDestino && idSubbodegaOrigen == idSubbodegaDestino) {
-            throw new SQLException("El origen y el destino no pueden ser iguales.");
-        }
-
-        final String lockOrigen = "SELECT cantidad FROM bodega_producto " +
-                "WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ? FOR UPDATE";
-
-        final String updateOrigen = "UPDATE bodega_producto SET cantidad = cantidad - ? " +
-                "WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
-
-        final String deleteOrigen = "DELETE FROM bodega_producto " +
-                "WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
-
-        final String upsertDestino = "INSERT INTO bodega_producto (idproducto, idbodega_principal, idsubbodega, cantidad) " +
-                "VALUES (?, ?, ?, ?) " +
-                "ON CONFLICT (idproducto, idbodega_principal, idsubbodega) " +
-                "DO UPDATE SET cantidad = bodega_producto.cantidad + EXCLUDED.cantidad";
-
-        // Capacidad destino (misma conexión/tx)
-        final String capacidadDestino = "SELECT sb.capacidad - COALESCE(SUM(bp.cantidad), 0) AS espacio_disponible " +
-                "FROM subbodega sb " +
-                "LEFT JOIN bodega_producto bp ON sb.idsubbodega = bp.idsubbodega " +
-                "WHERE sb.idsubbodega = ? " +
-                "GROUP BY sb.capacidad";
-
-        try (Connection conn = DatabaseConnection.getConnection()) {
-            conn.setAutoCommit(false);
-
-            // 0) Validar capacidad en destino dentro de la misma transacción
-            int espacioDisponible = Integer.MAX_VALUE; // por si no hay registros en bp
-            try (PreparedStatement psCap = conn.prepareStatement(capacidadDestino)) {
-                psCap.setInt(1, idSubbodegaDestino);
-                try (ResultSet rs = psCap.executeQuery()) {
-                    if (rs.next()) {
-                        espacioDisponible = rs.getInt("espacio_disponible");
-                    }
-                }
-            }
-            if (espacioDisponible < cantidadMover) {
-                conn.rollback();
-                throw new SQLException("Espacio insuficiente en la subbodega destino.");
-            }
-
-            // 1) Lock + validación de stock en origen
-            int cantOrigen;
-            try (PreparedStatement psLock = conn.prepareStatement(lockOrigen)) {
-                psLock.setInt(1, idProducto);
-                psLock.setInt(2, idBodegaOrigen);
-                psLock.setInt(3, idSubbodegaOrigen);
-                try (ResultSet rs = psLock.executeQuery()) {
-                    if (!rs.next()) {
-                        conn.rollback();
-                        throw new SQLException("El producto no existe en la ubicación de origen.");
-                    }
-                    cantOrigen = rs.getInt("cantidad");
-                }
-            }
-            if (cantidadMover > cantOrigen) {
-                conn.rollback();
-                throw new SQLException("Cantidad a mover excede la disponible en el origen.");
-            }
-
-            // 2) Restar en origen
-            try (PreparedStatement psUpd = conn.prepareStatement(updateOrigen)) {
-                psUpd.setInt(1, cantidadMover);
-                psUpd.setInt(2, idProducto);
-                psUpd.setInt(3, idBodegaOrigen);
-                psUpd.setInt(4, idSubbodegaOrigen);
-                if (psUpd.executeUpdate() == 0) {
-                    conn.rollback();
-                    throw new SQLException("No se pudo actualizar la cantidad en el origen.");
-                }
-            }
-
-            // 3) Borrar fila de origen si queda en 0 (opcional pero limpio)
-            if (cantOrigen - cantidadMover == 0) {
-                try (PreparedStatement psDel = conn.prepareStatement(deleteOrigen)) {
-                    psDel.setInt(1, idProducto);
-                    psDel.setInt(2, idBodegaOrigen);
-                    psDel.setInt(3, idSubbodegaOrigen);
-                    psDel.executeUpdate();
-                }
-            }
-
-            // 4) Upsert en destino
-            try (PreparedStatement psUpsert = conn.prepareStatement(upsertDestino)) {
-                psUpsert.setInt(1, idProducto);
-                psUpsert.setInt(2, idBodegaDestino);
-                psUpsert.setInt(3, idSubbodegaDestino);
-                psUpsert.setInt(4, cantidadMover);
-                psUpsert.executeUpdate();
-            }
-
-            conn.commit();
-        } catch (SQLException ex) {
-            throw new SQLException("Error al mover el producto: " + ex.getMessage(), ex);
-        }
-    }
-
-
-    // Método para obtener todos los productos
+    // === Obtener todos (compat) ===
     public List<ProductoForm> obtenerProductos() throws SQLException {
         List<ProductoForm> productos = new ArrayList<>();
         String sql = "SELECT p.idproducto, p.nombre, bp.cantidad, p.fechaingreso, p.ubicacion, " +
@@ -285,13 +269,12 @@ public class ProductoDAO {
                 "FROM producto p " +
                 "JOIN bodega_producto bp ON p.idproducto = bp.idproducto";
 
-        // Uso de try-with-resources para garantizar el cierre adecuado de recursos
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql);
              ResultSet rs = pstmt.executeQuery()) {
 
             while (rs.next()) {
-                ProductoForm producto = new ProductoForm(
+                productos.add(new ProductoForm(
                         rs.getInt("idproducto"),
                         rs.getString("nombre"),
                         rs.getInt("cantidad"),
@@ -299,8 +282,7 @@ public class ProductoDAO {
                         rs.getString("ubicacion"),
                         rs.getInt("idbodega_principal"),
                         rs.getInt("idsubbodega")
-                );
-                productos.add(producto);
+                ));
             }
         } catch (SQLException e) {
             throw new SQLException("Error al obtener los productos: " + e.getMessage(), e);
@@ -308,7 +290,7 @@ public class ProductoDAO {
         return productos;
     }
 
-    // Método para buscar productos por nombre
+    // === Buscar por bodega (compat) ===
     public List<ProductoForm> buscarProductosPorBodega(String textoBusqueda, Integer idBodega) throws SQLException {
         List<ProductoForm> productos = new ArrayList<>();
         StringBuilder sql = new StringBuilder(
@@ -318,7 +300,6 @@ public class ProductoDAO {
                         "JOIN bodega_producto bp ON p.idproducto = bp.idproducto WHERE 1=1"
         );
 
-        // Agregar filtros dinámicamente
         if (textoBusqueda != null && !textoBusqueda.isEmpty()) {
             sql.append(" AND p.nombre ILIKE ?");
         }
@@ -354,7 +335,7 @@ public class ProductoDAO {
         return productos;
     }
 
-    // Método para obtener nombres de productos
+    // === Nombres (igual) ===
     public List<String> obtenerNombresProductos() throws SQLException {
         List<String> nombres = new ArrayList<>();
         String sql = "SELECT DISTINCT nombre FROM producto ORDER BY nombre";
@@ -391,6 +372,7 @@ public class ProductoDAO {
         return false;
     }
 
+    // === Eliminar producto (con sync de total) ===
     public void eliminarProducto(int idProducto, int idBodega, int idSubbodega, int cantidadEliminar) throws SQLException {
         String verificarCantidadQuery = "SELECT cantidad FROM bodega_producto WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
         String actualizarCantidadQuery = "UPDATE bodega_producto SET cantidad = cantidad - ? WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
@@ -401,26 +383,29 @@ public class ProductoDAO {
         try (Connection conn = DatabaseConnection.getConnection()) {
             conn.setAutoCommit(false);
 
-            // Verificar cantidad disponible en la subbodega
+            int cantidadDisponible;
             try (PreparedStatement verificarStmt = conn.prepareStatement(verificarCantidadQuery)) {
                 verificarStmt.setInt(1, idProducto);
                 verificarStmt.setInt(2, idBodega);
                 verificarStmt.setInt(3, idSubbodega);
 
                 try (ResultSet rs = verificarStmt.executeQuery()) {
-                    if (rs.next()) {
-                        int cantidadDisponible = rs.getInt("cantidad");
-                        if (cantidadEliminar > cantidadDisponible) {
-                            throw new SQLException("Cantidad insuficiente para eliminar en esta subbodega.");
-                        }
-                    } else {
-                        throw new SQLException("El producto no existe en la subbodega especificada.");
+                    if (!rs.next()) throw new SQLException("El producto no existe en la subbodega especificada.");
+                    cantidadDisponible = rs.getInt("cantidad");
+                    if (cantidadEliminar > cantidadDisponible) {
+                        throw new SQLException("Cantidad insuficiente para eliminar en esta subbodega.");
                     }
                 }
             }
 
-            // Actualizar o eliminar el registro en la subbodega
-            if (cantidadEliminar > 0) {
+            if (cantidadEliminar == cantidadDisponible) {
+                try (PreparedStatement eliminarStmt = conn.prepareStatement(eliminarRegistroQuery)) {
+                    eliminarStmt.setInt(1, idProducto);
+                    eliminarStmt.setInt(2, idBodega);
+                    eliminarStmt.setInt(3, idSubbodega);
+                    eliminarStmt.executeUpdate();
+                }
+            } else {
                 try (PreparedStatement stmt = conn.prepareStatement(actualizarCantidadQuery)) {
                     stmt.setInt(1, cantidadEliminar);
                     stmt.setInt(2, idProducto);
@@ -430,15 +415,6 @@ public class ProductoDAO {
                 }
             }
 
-            // Eliminar el registro de bodega si no hay cantidades restantes
-            try (PreparedStatement eliminarStmt = conn.prepareStatement(eliminarRegistroQuery)) {
-                eliminarStmt.setInt(1, idProducto);
-                eliminarStmt.setInt(2, idBodega);
-                eliminarStmt.setInt(3, idSubbodega);
-                eliminarStmt.executeUpdate();
-            }
-
-            // Verificar si quedan existencias totales del producto
             try (PreparedStatement verificarTotalesStmt = conn.prepareStatement(verificarExistenciasTotalesQuery)) {
                 verificarTotalesStmt.setInt(1, idProducto);
 
@@ -446,69 +422,147 @@ public class ProductoDAO {
                     if (rs.next()) {
                         int existenciasTotales = rs.getInt("total");
                         if (existenciasTotales <= 0) {
-                            // Eliminar el producto si no quedan existencias
                             try (PreparedStatement eliminarProductoStmt = conn.prepareStatement(eliminarProductoQuery)) {
                                 eliminarProductoStmt.setInt(1, idProducto);
                                 eliminarProductoStmt.executeUpdate();
+                            }
+                        } else {
+                            String updProd = "UPDATE producto SET cantidad = ? WHERE idproducto = ?";
+                            try (PreparedStatement ps = conn.prepareStatement(updProd)) {
+                                ps.setInt(1, existenciasTotales);
+                                ps.setInt(2, idProducto);
+                                ps.executeUpdate();
                             }
                         }
                     }
                 }
             }
 
-            conn.commit(); // Confirmar transacción
+            conn.commit();
         } catch (SQLException ex) {
             throw new SQLException("Error al eliminar producto: " + ex.getMessage(), ex);
         }
     }
 
-    public void eliminarCantidadProducto(int idProducto, int idBodega, int idSubbodega, int cantidadEliminar) throws SQLException {
-        String verificarCantidadQuery = "SELECT cantidad FROM bodega_producto WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
-        String actualizarCantidadQuery = "UPDATE bodega_producto SET cantidad = cantidad - ? WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
-        String eliminarRegistroQuery = "DELETE FROM bodega_producto WHERE idproducto = ? AND idbodega_principal = ? AND idsubbodega = ?";
+    // === Eliminar cantidad (con sync de total) ===
+    public void eliminarCantidadProducto(int idProducto,
+                                         int idBodegaPrincipal,
+                                         int idSubbodega,
+                                         int cantidadAEliminar) throws SQLException {
+        if (cantidadAEliminar <= 0) {
+            throw new IllegalArgumentException("La cantidad a eliminar debe ser > 0");
+        }
 
-        try (Connection conn = DatabaseConnection.getConnection()) {
-            conn.setAutoCommit(false); // Iniciar transacción
+        Connection con = null;
+        boolean oldAutoCommit = true;
 
-            // Verificar la cantidad disponible en la subbodega
-            try (PreparedStatement verificarStmt = conn.prepareStatement(verificarCantidadQuery)) {
-                verificarStmt.setInt(1, idProducto);
-                verificarStmt.setInt(2, idBodega);
-                verificarStmt.setInt(3, idSubbodega);
+        try {
+            con = DatabaseConnection.getConnection(); // usa tu forma de obtener conexión
+            oldAutoCommit = con.getAutoCommit();
+            con.setAutoCommit(false);
 
-                try (ResultSet rs = verificarStmt.executeQuery()) {
-                    if (rs.next()) {
-                        int cantidadDisponible = rs.getInt("cantidad");
-
-                        if (cantidadEliminar > cantidadDisponible) {
-                            throw new SQLException("Cantidad insuficiente para eliminar.");
-                        } else if (cantidadEliminar == cantidadDisponible) {
-                            // Si la cantidad a eliminar es igual a la disponible, eliminar el registro
-                            try (PreparedStatement eliminarStmt = conn.prepareStatement(eliminarRegistroQuery)) {
-                                eliminarStmt.setInt(1, idProducto);
-                                eliminarStmt.setInt(2, idBodega);
-                                eliminarStmt.setInt(3, idSubbodega);
-                                eliminarStmt.executeUpdate();
-                            }
-                        } else {
-                            // Si quedan productos, actualizar la cantidad
-                            try (PreparedStatement actualizarStmt = conn.prepareStatement(actualizarCantidadQuery)) {
-                                actualizarStmt.setInt(1, cantidadEliminar);
-                                actualizarStmt.setInt(2, idProducto);
-                                actualizarStmt.setInt(3, idBodega);
-                                actualizarStmt.setInt(4, idSubbodega);
-                                actualizarStmt.executeUpdate();
-                            }
-                        }
-                    } else {
+            // 1) ¿Existe el producto en esa ubicación? Bloquea la fila.
+            int cantidadActual = 0;
+            try (PreparedStatement psSel = con.prepareStatement(
+                    "SELECT cantidad " +
+                            "FROM bodega_producto " +
+                            "WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=? " +
+                            "FOR UPDATE")) {
+                psSel.setInt(1, idProducto);
+                psSel.setInt(2, idBodegaPrincipal);
+                psSel.setInt(3, idSubbodega);
+                try (ResultSet rs = psSel.executeQuery()) {
+                    if (!rs.next()) {
                         throw new SQLException("El producto no existe en la subbodega especificada.");
+                    }
+                    cantidadActual = rs.getInt(1);
+                }
+            }
+
+            // 2) Calcula nueva cantidad para esa ubicación
+            int nuevaCantidadUbic = cantidadActual - cantidadAEliminar;
+
+            if (nuevaCantidadUbic > 0) {
+                // Descuenta
+                try (PreparedStatement psUpd = con.prepareStatement(
+                        "UPDATE bodega_producto " +
+                                "SET cantidad=? " +
+                                "WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=?")) {
+                    psUpd.setInt(1, nuevaCantidadUbic);
+                    psUpd.setInt(2, idProducto);
+                    psUpd.setInt(3, idBodegaPrincipal);
+                    psUpd.setInt(4, idSubbodega);
+                    psUpd.executeUpdate();
+                }
+            } else {
+                // Llega a 0 o negativo → elimina la fila de esa ubicación
+                try (PreparedStatement psDel = con.prepareStatement(
+                        "DELETE FROM bodega_producto " +
+                                "WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=?")) {
+                    psDel.setInt(1, idProducto);
+                    psDel.setInt(2, idBodegaPrincipal);
+                    psDel.setInt(3, idSubbodega);
+                    psDel.executeUpdate();
+                }
+            }
+
+            // 3) Sincroniza cantidad total en producto (suma de todas las ubicaciones)
+            int total = 0;
+            try (PreparedStatement psSum = con.prepareStatement(
+                    "SELECT COALESCE(SUM(cantidad),0) " +
+                            "FROM bodega_producto WHERE idproducto=?")) {
+                psSum.setInt(1, idProducto);
+                try (ResultSet rs = psSum.executeQuery()) {
+                    if (rs.next()) total = rs.getInt(1);
+                }
+            }
+
+            try (PreparedStatement psUpdProd = con.prepareStatement(
+                    "UPDATE producto SET cantidad=? WHERE idproducto=?")) {
+                psUpdProd.setInt(1, total);
+                psUpdProd.setInt(2, idProducto);
+                psUpdProd.executeUpdate();
+            }
+
+            // 4) Si total == 0 → borrar producto si no tiene dependencias EPP,
+            //    de lo contrario marcar SIN_STOCK (si tienes esa tabla/estado)
+            if (total <= 0) {
+                boolean tieneEpp = false;
+                try (PreparedStatement psHas = con.prepareStatement(
+                        "SELECT 1 FROM epp_item WHERE idproducto=? LIMIT 1")) {
+                    psHas.setInt(1, idProducto);
+                    try (ResultSet rs = psHas.executeQuery()) {
+                        tieneEpp = rs.next();
+                    }
+                }
+
+                if (!tieneEpp) {
+                    try (PreparedStatement psDelProd = con.prepareStatement(
+                            "DELETE FROM producto WHERE idproducto=?")) {
+                        psDelProd.setInt(1, idProducto);
+                        psDelProd.executeUpdate();
+                    }
+                } else {
+                    // Marca el estado como SIN_STOCK si manejas catálogo de estados
+                    try (PreparedStatement psUpdEstado = con.prepareStatement(
+                            "UPDATE producto " +
+                                    "SET id_estado = (SELECT id_estado FROM producto_estado WHERE nombre='SIN_STOCK' LIMIT 1) " +
+                                    "WHERE idproducto=?")) {
+                        psUpdEstado.setInt(1, idProducto);
+                        psUpdEstado.executeUpdate();
                     }
                 }
             }
 
-            conn.commit(); // Confirmar la transacción
+            con.commit();
         } catch (SQLException ex) {
-            throw new SQLException("Error al eliminar cantidad de producto: " + ex.getMessage(), ex);
+            if (con != null) con.rollback();
+            throw ex;
+        } finally {
+            if (con != null) {
+                try { con.setAutoCommit(oldAutoCommit); } catch (Exception ignored) {}
+                try { con.close(); } catch (Exception ignored) {}
+            }
         }
     }
 
@@ -522,7 +576,7 @@ public class ProductoDAO {
 
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getInt("idproducto"); // Retorna el ID si se encuentra
+                    return rs.getInt("idproducto");
                 } else {
                     throw new SQLException("Producto no encontrado: " + nombreProducto);
                 }
@@ -577,6 +631,24 @@ public class ProductoDAO {
             if (filasAfectadas == 0) {
                 throw new SQLException("No se encontró el producto con el ID especificado en la bodega y subbodega dadas.");
             }
+
+            // sincroniza el total en producto
+            String totalSql = "SELECT COALESCE(SUM(cantidad),0) FROM bodega_producto WHERE idproducto = ?";
+            try (PreparedStatement psTot = conn.prepareStatement(totalSql)) {
+                psTot.setInt(1, idProducto);
+                try (ResultSet rs = psTot.executeQuery()) {
+                    if (rs.next()) {
+                        int total = rs.getInt(1);
+                        String upd = "UPDATE producto SET cantidad=? WHERE idproducto=?";
+                        try (PreparedStatement ps = conn.prepareStatement(upd)) {
+                            ps.setInt(1, total);
+                            ps.setInt(2, idProducto);
+                            ps.executeUpdate();
+                        }
+                    }
+                }
+            }
+
         } catch (SQLException e) {
             throw new SQLException("Error al actualizar la cantidad del producto: " + e.getMessage(), e);
         }
@@ -591,7 +663,7 @@ public class ProductoDAO {
                         "       bp2.nombre AS nombre_bodega_principal, " +
                         "       sb.nombre  AS nombre_subbodega " +
                         "FROM bodega_producto bp " +
-                        "JOIN producto p          ON p.idproducto = bp.idproducto " +
+                        "JOIN producto p           ON p.idproducto = bp.idproducto " +
                         "JOIN bodega_principal bp2 ON bp2.idbodega_principal = bp.idbodega_principal " +
                         "JOIN subbodega sb         ON sb.idsubbodega = bp.idsubbodega " +
                         "WHERE 1=1 "
@@ -641,7 +713,6 @@ public class ProductoDAO {
         return productos;
     }
 
-
     public int obtenerSiguienteId() throws SQLException {
         String sql = "SELECT COALESCE(MAX(idproducto), 0) + 1 AS siguiente_id FROM producto";
         try (Connection conn = DatabaseConnection.getConnection();
@@ -651,7 +722,7 @@ public class ProductoDAO {
                 return rs.getInt("siguiente_id");
             }
         }
-        return 1; // Si no hay productos, el ID inicial será 1
+        return 1;
     }
 
     public static class UbicacionProducto {
@@ -684,5 +755,343 @@ public class ProductoDAO {
         }
         return res;
     }
+
+    // Devuelve id_material a partir del nombre (p.ej. 'RESCATE','INCENDIO','EPP') o null si no aplica
+    private Integer resolveIdMaterial(Connection conn, String nombre) throws SQLException {
+        if (nombre == null || nombre.isBlank()) return null;
+        final String sql = "SELECT id_material FROM material_tipo WHERE UPPER(nombre) = UPPER(?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, nombre.trim());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        }
+        return null; // no encontrado → no forzamos error
+    }
+
+    // Devuelve id_estado a partir del nombre (p.ej. 'ACTIVO','DESCONTINUADO','SIN_STOCK') o null
+    private Integer resolveIdEstado(Connection conn, String nombre) throws SQLException {
+        if (nombre == null || nombre.isBlank()) return null;
+        final String sql = "SELECT id_estado FROM producto_estado WHERE UPPER(nombre) = UPPER(?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, nombre.trim());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        }
+        return null;
+    }
+
+    // Lista nombres de productos que tienen stock (>0) en una ubicación exacta
+    public List<String> obtenerProductosConStockEn(int idBodega, int idSubbodega) throws SQLException {
+        String sql =
+                "SELECT DISTINCT p.nombre " +
+                        "FROM bodega_producto bp " +
+                        "JOIN producto p ON p.idproducto = bp.idproducto " +
+                        "WHERE bp.idbodega_principal = ? " +
+                        "  AND bp.idsubbodega = ? " +
+                        "  AND bp.cantidad > 0 " +
+                        "ORDER BY p.nombre";
+        List<String> out = new ArrayList<>();
+        try (Connection con = DatabaseConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, idBodega);
+            ps.setInt(2, idSubbodega);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) out.add(rs.getString(1));
+            }
+        }
+        return out;
+    }
+
+    // Lista "producto + ubicación" para poblar combos de mover/eliminar
+    public java.util.List<ProductoUbicacion> listarProductoUbicaciones() throws java.sql.SQLException {
+        String sql = """
+        SELECT p.idproducto,
+               p.nombre,
+               bp.idbodega_principal,
+               bp.idsubbodega,
+               b.nombre  AS bodega_nombre,
+               s.nombre  AS subbodega_nombre,
+               bp.cantidad
+        FROM bodega_producto bp
+        JOIN producto p          ON p.idproducto = bp.idproducto
+        JOIN bodega_principal b  ON b.idbodega_principal = bp.idbodega_principal
+        JOIN subbodega s         ON s.idsubbodega = bp.idsubbodega
+        WHERE bp.cantidad > 0
+        ORDER BY p.nombre, b.nombre, s.nombre
+    """;
+        try (var c = DatabaseConnection.getConnection();
+             var ps = c.prepareStatement(sql);
+             var rs = ps.executeQuery()) {
+
+            var out = new java.util.ArrayList<ProductoUbicacion>();
+            while (rs.next()) {
+                out.add(new ProductoUbicacion(
+                        rs.getInt("idproducto"),
+                        rs.getInt("idbodega_principal"),
+                        rs.getInt("idsubbodega"),
+                        rs.getString("nombre"),
+                        rs.getString("bodega_nombre"),
+                        rs.getString("subbodega_nombre"),
+                        rs.getInt("cantidad")
+                ));
+            }
+            return out;
+        }
+    }
+
+    // Mover stock entre ubicaciones (transacción con UPSERT en destino)
+    public void moverProducto(int idProducto,
+                              int desdeBodega, int desdeSubbodega,
+                              int haciaBodega, int haciaSubbodega,
+                              int cantidad) throws java.sql.SQLException {
+        if (cantidad <= 0) throw new IllegalArgumentException("Cantidad debe ser > 0");
+        if (desdeBodega == haciaBodega && desdeSubbodega == haciaSubbodega)
+            throw new IllegalArgumentException("El destino no puede ser igual al origen.");
+
+        String qLock = """
+        SELECT cantidad FROM bodega_producto
+        WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=?
+        FOR UPDATE
+    """;
+        String qDec = """
+        UPDATE bodega_producto
+        SET cantidad = cantidad - ?
+        WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=?
+    """;
+        String qUpsertDest = """
+        INSERT INTO bodega_producto(idproducto,idbodega_principal,idsubbodega,cantidad)
+        VALUES (?,?,?,?)
+        ON CONFLICT (idproducto,idbodega_principal,idsubbodega)
+        DO UPDATE SET cantidad = bodega_producto.cantidad + EXCLUDED.cantidad
+    """;
+        String qCleanZero = """
+        DELETE FROM bodega_producto
+        WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=?
+          AND cantidad <= 0
+    """;
+        String qSyncTotales = """
+        UPDATE producto p
+        SET cantidad = COALESCE(t.total,0)
+        FROM (SELECT idproducto, SUM(cantidad) AS total
+              FROM bodega_producto GROUP BY idproducto) t
+        WHERE p.idproducto = t.idproducto
+    """;
+
+        var c = DatabaseConnection.getConnection();
+        boolean old = c.getAutoCommit();
+        c.setAutoCommit(false);
+        try (var psLock = c.prepareStatement(qLock);
+             var psDec  = c.prepareStatement(qDec);
+             var psIns  = c.prepareStatement(qUpsertDest);
+             var psDel0 = c.prepareStatement(qCleanZero);
+             var psSync = c.prepareStatement(qSyncTotales)) {
+
+            // 1) Lock y validación stock origen
+            psLock.setInt(1, idProducto); psLock.setInt(2, desdeBodega); psLock.setInt(3, desdeSubbodega);
+            try (var rs = psLock.executeQuery()) {
+                if (!rs.next()) throw new java.sql.SQLException("El producto no existe en el origen.");
+                int disp = rs.getInt(1);
+                if (disp < cantidad) throw new java.sql.SQLException("Stock insuficiente en el origen ("+disp+").");
+            }
+
+            // 2) Descuento en origen
+            psDec.setInt(1, cantidad);
+            psDec.setInt(2, idProducto);
+            psDec.setInt(3, desdeBodega);
+            psDec.setInt(4, desdeSubbodega);
+            psDec.executeUpdate();
+
+            // 3) UPSERT en destino (suma)
+            psIns.setInt(1, idProducto);
+            psIns.setInt(2, haciaBodega);
+            psIns.setInt(3, haciaSubbodega);
+            psIns.setInt(4, cantidad);
+            psIns.executeUpdate();
+
+            // 4) Limpia fila en cero
+            psDel0.setInt(1, idProducto);
+            psDel0.setInt(2, desdeBodega);
+            psDel0.setInt(3, desdeSubbodega);
+            psDel0.executeUpdate();
+
+            // 5) Sincroniza totales
+            psSync.executeUpdate();
+
+            c.commit();
+        } catch (java.sql.SQLException ex) {
+            c.rollback();
+            throw ex;
+        } finally {
+            c.setAutoCommit(old);
+            c.close();
+        }
+    }
+
+    // Eliminar cantidad en una ubicación exacta
+    public void eliminarCantidad(int idProducto, int idBodega, int idSubbodega, int cantidad)
+            throws java.sql.SQLException {
+        if (cantidad <= 0) throw new IllegalArgumentException("Cantidad debe ser > 0");
+
+        String qLock = """
+        SELECT cantidad FROM bodega_producto
+        WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=?
+        FOR UPDATE
+    """;
+        String qDec = """
+        UPDATE bodega_producto
+        SET cantidad = cantidad - ?
+        WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=?
+    """;
+        String qCleanZero = """
+        DELETE FROM bodega_producto
+        WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=?
+          AND cantidad <= 0
+    """;
+        String qSyncTotales = """
+        UPDATE producto p
+        SET cantidad = COALESCE(t.total,0)
+        FROM (SELECT idproducto, SUM(cantidad) AS total
+              FROM bodega_producto GROUP BY idproducto) t
+        WHERE p.idproducto = t.idproducto
+    """;
+
+        var c = DatabaseConnection.getConnection();
+        boolean old = c.getAutoCommit();
+        c.setAutoCommit(false);
+        try (var psLock = c.prepareStatement(qLock);
+             var psDec  = c.prepareStatement(qDec);
+             var psDel0 = c.prepareStatement(qCleanZero);
+             var psSync = c.prepareStatement(qSyncTotales)) {
+
+            psLock.setInt(1, idProducto); psLock.setInt(2, idBodega); psLock.setInt(3, idSubbodega);
+            try (var rs = psLock.executeQuery()) {
+                if (!rs.next()) throw new java.sql.SQLException("El producto no existe en la subbodega especificada.");
+                int disp = rs.getInt(1);
+                if (disp < cantidad) throw new java.sql.SQLException("Stock insuficiente ("+disp+").");
+            }
+
+            psDec.setInt(1, cantidad);
+            psDec.setInt(2, idProducto);
+            psDec.setInt(3, idBodega);
+            psDec.setInt(4, idSubbodega);
+            psDec.executeUpdate();
+
+            psDel0.setInt(1, idProducto);
+            psDel0.setInt(2, idBodega);
+            psDel0.setInt(3, idSubbodega);
+            psDel0.executeUpdate();
+
+            psSync.executeUpdate();
+            c.commit();
+        } catch (java.sql.SQLException ex) {
+            c.rollback();
+            throw ex;
+        } finally {
+            c.setAutoCommit(old);
+            c.close();
+        }
+    }
+
+    public int ensureProductoEppPorTipoNombre(int idTipo,
+                                              String talla,
+                                              boolean esSerializable,
+                                              int idBodega,
+                                              int idSubbodega) throws SQLException {
+        // 1) Nombre legible desde epp_tipo
+        String nombre;
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT tipo || ' / ' || subtipo FROM epp_tipo WHERE id_tipo = ?")) {
+            ps.setInt(1, idTipo);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) throw new SQLException("id_tipo no encontrado en epp_tipo: " + idTipo);
+                nombre = rs.getString(1);
+            }
+        }
+        if (talla != null && !talla.isBlank()) nombre = "EPP: " + nombre + " - Talla " + talla;
+        else nombre = "EPP: " + nombre;
+
+        // 2) ¿Ya existe un catálogo EPP con ese nombre?
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT idproducto FROM producto WHERE es_epp = TRUE AND nombre = ? LIMIT 1")) {
+            ps.setString(1, nombre);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        }
+
+        // 3) Crear catálogo (ubicacion NUNCA nula)
+        final String ins = """
+        INSERT INTO producto(
+            nombre, cantidad, fechaingreso, ubicacion,
+            idbodega_principal, idsubbodega,
+            marca, valor_referencial, id_estado, id_material,
+            observacion, requiere_mantencion, frecuencia_mantencion_meses,
+            aplica_vencimiento, es_epp, es_serializable
+        ) VALUES ( ?, 0, CURRENT_DATE, ?, ?, ?, 
+                   NULL, NULL, NULL, NULL,
+                   NULL, FALSE, NULL,
+                   FALSE, TRUE, ?)
+        RETURNING idproducto
+    """;
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(ins)) {
+            int i=1;
+            ps.setString(i++, nombre);
+            ps.setString(i++, "");          // <- evita NOT NULL en 'ubicacion'
+            ps.setInt(i++, idBodega);
+            ps.setInt(i++, idSubbodega);
+            ps.setBoolean(i++, esSerializable);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    public void upsertCantidad(Connection c,
+                               int idProducto,
+                               int idBodega,
+                               int idSubbodega,
+                               int delta) throws SQLException {
+        String upd = """
+        UPDATE bodega_producto
+           SET cantidad = cantidad + ?
+         WHERE idproducto=? AND idbodega_principal=? AND idsubbodega=?
+    """;
+        try (PreparedStatement ps = c.prepareStatement(upd)) {
+            ps.setInt(1, delta);
+            ps.setInt(2, idProducto);
+            ps.setInt(3, idBodega);
+            ps.setInt(4, idSubbodega);
+            int rows = ps.executeUpdate();
+            if (rows == 0) {
+                String ins = """
+                INSERT INTO bodega_producto(idproducto,idbodega_principal,idsubbodega,cantidad)
+                VALUES (?,?,?,?)
+            """;
+                try (PreparedStatement ps2 = c.prepareStatement(ins)) {
+                    ps2.setInt(1, idProducto);
+                    ps2.setInt(2, idBodega);
+                    ps2.setInt(3, idSubbodega);
+                    ps2.setInt(4, Math.max(delta, 0));
+                    ps2.executeUpdate();
+                }
+            }
+        }
+
+        // Sincroniza el total del producto (opcional pero útil aquí)
+        try (PreparedStatement ps = c.prepareStatement(
+                "UPDATE producto p SET cantidad = COALESCE(t.total,0) " +
+                        "FROM (SELECT idproducto, SUM(cantidad) total FROM bodega_producto GROUP BY idproducto) t " +
+                        "WHERE p.idproducto = t.idproducto AND p.idproducto = ?")) {
+            ps.setInt(1, idProducto);
+            ps.executeUpdate();
+        }
+    }
+
 
 }
